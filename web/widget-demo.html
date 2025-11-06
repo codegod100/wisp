@@ -356,33 +356,93 @@
         
         try {
           console.log('Reading code:', code);
-          const src = ctx.read(code);
-          console.log('Read result:', src);
           
-          const run = ctx.api.wisp_run_init(ctx.heap, src);
-          console.log('Run initialized:', run);
+          // Try to read multiple expressions first
+          let forms = ctx.readMany(code);
+          let lastResult = ctx.sys.nil;
           
-          const result = ctx.api.wisp_run_eval(ctx.heap, run, 4_000_000) >>> 0;
-          console.log('Evaluation result:', result, 'hex:', '0x' + result.toString(16));
+          if (forms === ctx.sys.zap) {
+            // If readMany fails, try reading a single expression
+            forms = ctx.read(code);
+            if (forms === ctx.sys.zap) {
+              resultDiv.innerHTML = '<span style="color: red;">Error: Failed to parse code</span>';
+              return;
+            }
+            // Single expression - evaluate it directly
+            const run = ctx.api.wisp_run_init(ctx.heap, forms);
+            console.log('Run initialized:', run);
+            lastResult = ctx.api.wisp_run_eval(ctx.heap, run, 4_000_000) >>> 0;
+          } else {
+            // Multiple expressions - evaluate each one in sequence
+            console.log('Read multiple expressions, forms:', forms);
+            
+            // Check if forms is actually a duo (list)
+            const tags = {
+              duo: 0x15,
+              v08: 0x1a,
+              v32: 0x19,
+              sym: 0x14,
+              fun: 0x16,
+              mac: 0x17,
+            };
+            const formsTag = (forms >>> 27) & 0x1f;
+            console.log('Forms tag:', formsTag.toString(16), 'expected duo:', tags.duo.toString(16));
+            
+            if (formsTag !== tags.duo) {
+              console.error('readMany did not return a list (duo), got tag:', formsTag);
+              resultDiv.innerHTML = '<span style="color: red;">Error: Failed to parse multiple expressions</span>';
+              return;
+            }
+            
+            let current = forms;
+            let formCount = 0;
+            
+            while (current !== ctx.sys.nil) {
+              // Verify current is a duo before accessing
+              const currentTag = (current >>> 27) & 0x1f;
+              if (currentTag !== tags.duo && current !== ctx.sys.nil) {
+                console.error('Expected duo or nil, got tag:', currentTag, 'value:', current);
+                break;
+              }
+              
+              const form = ctx.api.wisp_heap_get_duo_head(ctx.heap, current) >>> 0;
+              formCount++;
+              console.log(`Evaluating form ${formCount}:`, form);
+              
+              const run = ctx.api.wisp_run_init(ctx.heap, form);
+              lastResult = ctx.api.wisp_run_eval(ctx.heap, run, 4_000_000) >>> 0;
+              
+              if (lastResult === ctx.sys.zap) {
+                console.error(`Form ${formCount} returned zap (error)`);
+                break;
+              }
+              
+              current = ctx.api.wisp_heap_get_duo_tail(ctx.heap, current) >>> 0;
+            }
+            
+            console.log(`Evaluated ${formCount} form(s)`);
+          }
+          
+          console.log('Evaluation result:', lastResult, 'hex:', '0x' + lastResult.toString(16));
           console.log('System values:', {
             nil: ctx.sys.nil,
             t: ctx.sys.t,
             zap: ctx.sys.zap
           });
 
-          if (result === ctx.sys.zap) {
+          if (lastResult === ctx.sys.zap) {
             console.error('Evaluation returned zap (error)');
             resultDiv.innerHTML = '<span style="color: red;">Error: Evaluation failed (zap).<br><small>The function or syntax may not be available in Wisp. Try simpler code like <code>(+ 1 2)</code> or <code>(* 3 4)</code></small></span>';
             return;
           }
 
           try {
-            const resultStr = formatResult(ctx, result);
+            const resultStr = formatResult(ctx, lastResult);
             console.log('Formatted result:', resultStr);
             resultDiv.innerHTML = `<strong>Result:</strong> <code>${escapeHtml(resultStr)}</code>`;
           } catch (formatError) {
             console.error('Format error:', formatError);
-            resultDiv.innerHTML = `<span style="color: orange;">Result: 0x${result.toString(16)} (format error: ${escapeHtml(formatError.message)})</span>`;
+            resultDiv.innerHTML = `<span style="color: orange;">Result: 0x${lastResult.toString(16)} (format error: ${escapeHtml(formatError.message)})</span>`;
           }
         } catch (error) {
           console.error('Lisp execution error:', error);

@@ -56,6 +56,8 @@ pub fn build(b: *std.Build) void {
         "wisp_heap_v08_new",
         "wisp_heap_v32_new",
         "wisp_heap_get_ext_idx",
+        "wisp_heap_get_duo_head",
+        "wisp_heap_get_duo_tail",
         "wisp_heap_free_pin",
         "wisp_heap_get_v08_ptr",
         "wisp_heap_get_v08_len",
