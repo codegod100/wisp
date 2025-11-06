@@ -148,6 +148,7 @@
       wasi.setMemory(instance.exports.memory);
       wispContext = new Wisp(instance);
       wasd.setWisp(wispContext);
+      window.wasd = wasd; // Make wasd accessible globally
       
       return wispContext;
     }
@@ -310,6 +311,16 @@
       widget.innerHTML = `
         <h2>💻 Lisp Code Runner</h2>
         <textarea class="code-editor" id="lisp-code" placeholder="Enter Lisp code here...">(+ 1 2 3)</textarea>
+        <p style="font-size: 0.85em; color: #888; margin-top: 8px;">
+          <strong>Debug fetch:</strong> Try these in order:<br>
+          <code>*window*</code> - Check if *window* is set<br>
+          <code>(js-object)</code> - Test js-object with no args<br>
+          <code>(send! :async "test")</code> - Test send! (should fail if no prompt)<br>
+          <code>(js-call (js-global-this) "fetch" "https://api.github.com/users/octocat" (js-object))</code> - Direct fetch call
+        </p>
+        <p style="font-size: 0.85em; color: #888; margin-top: 8px;">
+          <strong>Note:</strong> For <code>fetch</code>, try: <code>(js-global-this)</code> first to test if browser APIs work
+        </p>
         <p style="font-size: 12px; color: #666; margin: 5px 0;">
           <strong>Try:</strong> <code>(+ 1 2 3)</code>, <code>(* 2 3)</code>, <code>(list 1 2 3)</code><br>
           <strong>Note:</strong> Load <code>format.wisp</code> first to use <code>format</code> function!
@@ -318,8 +329,51 @@
         <div class="result" id="lisp-result">Result will appear here...</div>
       `;
 
-      // Load format.wisp if not already loaded
+      // Load format.wisp and js.wisp if not already loaded
       let formatLoaded = false;
+      let jsLoaded = false;
+      
+      async function loadWispFile(filename) {
+        try {
+          const code = await fetch(`./${filename}`).then(x => x.text());
+          // Use readMany to load multiple forms, then evaluate each one
+          const forms = ctx.readMany(code);
+          if (forms === ctx.sys.zap) {
+            console.error(`${filename} failed to parse`);
+            return false;
+          }
+          
+          // Evaluate each form in the file
+          let current = forms;
+          let formIndex = 0;
+          while (current !== ctx.sys.nil) {
+            formIndex++;
+            const form = ctx.api.wisp_heap_get_duo_head(ctx.heap, current) >>> 0;
+            const run = ctx.api.wisp_run_init(ctx.heap, form);
+            const result = ctx.api.wisp_run_eval(ctx.heap, run, 4_000_000) >>> 0;
+            if (result === ctx.sys.zap) {
+              const runErr = ctx.api.wisp_run_err(ctx.heap, run);
+              const runExp = ctx.api.wisp_run_exp(ctx.heap, run);
+              console.error(`${filename} form ${formIndex} failed:`, runErr, runExp);
+              // Try to format the expression to see what failed
+              try {
+                const expStr = formatResult(ctx, runExp);
+                console.error(`Failed form ${formIndex}:`, expStr);
+              } catch (e) {
+                console.error('Could not format failed form:', e);
+              }
+              // Continue loading other forms even if one fails
+            }
+            current = ctx.api.wisp_heap_get_duo_tail(ctx.heap, current) >>> 0;
+          }
+          
+          console.log(`${filename} loaded successfully`);
+          return true;
+        } catch (e) {
+          console.warn(`Could not load ${filename}:`, e);
+          return false;
+        }
+      }
       
       window.runLispCode = async () => {
         const code = document.getElementById('lisp-code').value.trim();
@@ -330,21 +384,76 @@
           return;
         }
         
+        // Try to load js.wisp if using fetch, response-text, or other JS functions
+        // Note: base.wisp is already in boot.core, so we don't need to load it
+        if (!jsLoaded && (code.includes('fetch') || code.includes('response-text') || 
+                          code.includes('js-call') || code.includes('js-get') || 
+                          code.includes('await') || code.includes('async'))) {
+          try {
+            resultDiv.innerHTML = '<span style="color: #666;">Loading js.wisp...</span>';
+            jsLoaded = await loadWispFile('js.wisp');
+            if (!jsLoaded) {
+              resultDiv.innerHTML = '<span style="color: orange;">Warning: js.wisp failed to load. fetch and other JS functions may not work.</span>';
+            } else {
+              // After loading js.wisp, verify *window* is set, and set it manually if needed
+              try {
+                const testWindow = ctx.read('*window*');
+                const testRun = ctx.api.wisp_run_init(ctx.heap, testWindow);
+                const testResult = ctx.api.wisp_run_eval(ctx.heap, testRun, 4_000_000) >>> 0;
+                if (testResult === ctx.sys.zap) {
+                  console.warn('*window* is not set, setting it manually...');
+                  // Set *window* manually
+                  const setWindowCode = ctx.read('(set-symbol-value! (quote *window*) (js-global-this))');
+                  const setWindowRun = ctx.api.wisp_run_init(ctx.heap, setWindowCode);
+                  const setWindowResult = ctx.api.wisp_run_eval(ctx.heap, setWindowRun, 4_000_000) >>> 0;
+                  if (setWindowResult === ctx.sys.zap) {
+                    console.error('Failed to set *window* manually');
+                  } else {
+                    console.log('*window* set manually');
+                  }
+              } else {
+                console.log('*window* is already set');
+              }
+              
+              // Define a simpler fetch that doesn't use await
+              // The regular fetch uses await/send! which requires prompt handlers
+              // This version returns the promise directly, which you can handle with js-then
+              try {
+                const simpleFetchCode = ctx.read(`
+                  (defun fetch-simple (url)
+                    (js-call *window* "fetch" url (js-object)))
+                  
+                  (defun response-text-simple (response)
+                    (js-call response "text"))
+                `);
+                const simpleFetchRun = ctx.api.wisp_run_init(ctx.heap, simpleFetchCode);
+                const simpleFetchResult = ctx.api.wisp_run_eval(ctx.heap, simpleFetchRun, 4_000_000) >>> 0;
+                if (simpleFetchResult === ctx.sys.zap) {
+                  console.warn('Failed to define fetch-simple');
+                } else {
+                  console.log('fetch-simple and response-text-simple defined');
+                  console.log('Note: fetch-simple returns a promise. Use js-then to handle it.');
+                }
+              } catch (e) {
+                console.warn('Could not define fetch-simple:', e);
+              }
+            } catch (e) {
+              console.warn('Could not verify *window*:', e);
+            }
+          }
+          } catch (e) {
+            console.warn('Could not load js.wisp:', e);
+            resultDiv.innerHTML = '<span style="color: orange;">Warning: Could not load js.wisp</span>';
+          }
+        }
+        
         // Try to load format.wisp if using format
         if (!formatLoaded && code.includes('format')) {
           try {
             resultDiv.innerHTML = '<span style="color: #666;">Loading format.wisp...</span>';
-            const formatCode = await fetch('./format.wisp').then(x => x.text());
-            // Load format.wisp code
-            const formatSrc = ctx.read(`(with-simple-error-handler (fn () (do ${formatCode})))`);
-            const formatRun = ctx.api.wisp_run_init(ctx.heap, formatSrc);
-            const formatResult = ctx.api.wisp_run_eval(ctx.heap, formatRun, 4_000_000) >>> 0;
-            if (formatResult === ctx.sys.zap) {
-              console.error('format.wisp failed to load:', formatResult);
+            formatLoaded = await loadWispFile('format.wisp');
+            if (!formatLoaded) {
               resultDiv.innerHTML = '<span style="color: orange;">Warning: format.wisp failed to load. Some functions may not work.</span>';
-            } else {
-              formatLoaded = true;
-              console.log('format.wisp loaded successfully');
             }
           } catch (e) {
             console.warn('Could not load format.wisp:', e);
@@ -413,7 +522,33 @@
               lastResult = ctx.api.wisp_run_eval(ctx.heap, run, 4_000_000) >>> 0;
               
               if (lastResult === ctx.sys.zap) {
-                console.error(`Form ${formCount} returned zap (error)`);
+                // Try to get error details from the run
+                try {
+                  const runErr = ctx.api.wisp_run_err(ctx.heap, run);
+                  const runExp = ctx.api.wisp_run_exp(ctx.heap, run);
+                  console.error(`Form ${formCount} returned zap (error)`);
+                  console.error('Error value:', runErr, 'hex:', '0x' + runErr.toString(16));
+                  console.error('Expression:', runExp, 'hex:', '0x' + runExp.toString(16));
+                  
+                  // Try to format the expression that failed
+                  try {
+                    const expStr = formatResult(ctx, runExp);
+                    console.error('Failed expression:', expStr);
+                  } catch (e) {
+                    console.error('Could not format expression:', e);
+                  }
+                  
+                  if (runErr !== ctx.sys.nil) {
+                    try {
+                      const errStr = formatResult(ctx, runErr);
+                      console.error('Error details:', errStr);
+                    } catch (e) {
+                      console.error('Could not format error:', e);
+                    }
+                  }
+                } catch (e) {
+                  console.error(`Form ${formCount} returned zap (error) - could not get details:`, e);
+                }
                 break;
               }
               
@@ -597,6 +732,198 @@
       return div.innerHTML;
     }
 
+    // HTTP Request Widget
+    async function createHttpRequestWidget() {
+      const ctx = await initWisp();
+      
+      // Set up a global error handler that's always active
+      // This prevents SEND-WITH-DEFAULT! from failing when no prompt handler is found
+      const globalErrorHandlerCode = ctx.read(`
+        (defvar *global-error-handler-active* nil)
+        
+        ;; This will be called whenever an error occurs
+        ;; We set it up by wrapping all evaluations in a prompt handler
+      `);
+      const globalErrorHandlerRun = ctx.api.wisp_run_init(ctx.heap, globalErrorHandlerCode);
+      ctx.api.wisp_run_eval(ctx.heap, globalErrorHandlerRun, 4_000_000) >>> 0;
+      
+      // Make sure js.wisp is loaded
+      if (!window.jsLoaded) {
+        try {
+          const code = await fetch('./js.wisp').then(x => x.text());
+          const forms = ctx.readMany(code);
+          if (forms !== ctx.sys.zap) {
+            let current = forms;
+            while (current !== ctx.sys.nil) {
+              const form = ctx.api.wisp_heap_get_duo_head(ctx.heap, current) >>> 0;
+              // Evaluate each form - errors will be caught by the global handler if set up
+              const run = ctx.api.wisp_run_init(ctx.heap, form);
+              const result = ctx.api.wisp_run_eval(ctx.heap, run, 4_000_000) >>> 0;
+              if (result === ctx.sys.zap) {
+                console.warn('Form evaluation returned zap, but continuing...');
+              }
+              current = ctx.api.wisp_heap_get_duo_tail(ctx.heap, current) >>> 0;
+            }
+            // Define HTTP request handler and DOM helpers in Lisp
+            // First ensure *window* is set
+            try {
+              const setWindowCode = ctx.read('(try (set-symbol-value! (quote *window*) (js-global-this)) (catch (e k) nil))');
+              const setWindowRun = ctx.api.wisp_run_init(ctx.heap, setWindowCode);
+              ctx.api.wisp_run_eval(ctx.heap, setWindowRun, 4_000_000) >>> 0;
+            } catch (e) {
+              console.warn('Could not set *window*:', e);
+            }
+            
+            const httpCode = ctx.read(`
+              ;; DOM manipulation helpers
+              (defun element-get-value (id)
+                (js-get (query-selector (string-append "#" id)) "value"))
+              
+              (defun element-set-html (id html)
+                (js-set! (query-selector (string-append "#" id)) "innerHTML" html))
+              
+              (defun element-set-text (id text)
+                (js-set! (query-selector (string-append "#" id)) "textContent" text))
+              
+              ;; HTTP request handler - uses js-call to call window.fetch
+              (defun http-fetch (url)
+                (js-call (js-global-this) "fetch" url))
+            `);
+            const httpRun = ctx.api.wisp_run_init(ctx.heap, httpCode);
+            ctx.api.wisp_run_eval(ctx.heap, httpRun, 4_000_000) >>> 0;
+            window.jsLoaded = true;
+          }
+        } catch (e) {
+          console.warn('Could not load js.wisp for HTTP widget:', e);
+        }
+      }
+      
+      const widget = document.createElement('div');
+      widget.className = 'widget';
+      widget.innerHTML = `
+        <h2>🌐 HTTP Request</h2>
+        <p>Make HTTP requests using Lisp</p>
+        <input type="text" id="http-url" value="https://api.github.com/users/octocat" style="width: 100%; padding: 8px; margin: 10px 0; box-sizing: border-box;">
+        <button onclick="makeHttpRequest()" style="width: 100%; padding: 10px; font-size: 16px;">Fetch</button>
+        <div class="result" id="http-result" style="margin-top: 15px; padding: 10px; background: #1e1e1e; border-radius: 5px; max-height: 400px; overflow-y: auto; white-space: pre-wrap; font-family: monospace; font-size: 12px;">Click "Fetch" to make a request...</div>
+      `;
+
+      // Minimal JavaScript glue - JS gets URL, Lisp creates promise and updates DOM, JS handles promise chain
+      window.makeHttpRequest = () => {
+        try {
+          // Get URL from input in JavaScript (simpler than Lisp)
+          const urlInput = document.getElementById('http-url');
+          const url = urlInput.value.trim();
+          
+          if (!url) {
+            document.getElementById('http-result').innerHTML = '<span style="color: orange;">Please enter a URL</span>';
+            return;
+          }
+          
+          // Show loading message using Lisp
+          const loadingCode = ctx.read('(element-set-html "http-result" "<span style=\\"color: #666;\\">Loading...</span>")');
+          const loadingRun = ctx.api.wisp_run_init(ctx.heap, loadingCode);
+          ctx.api.wisp_run_eval(ctx.heap, loadingRun, 4_000_000) >>> 0;
+          
+          // First verify *window* is set
+          const checkWindowCode = ctx.read('*window*');
+          const checkWindowRun = ctx.api.wisp_run_init(ctx.heap, checkWindowCode);
+          const windowResult = ctx.api.wisp_run_eval(ctx.heap, checkWindowRun, 4_000_000) >>> 0;
+          
+          if (windowResult === ctx.sys.zap || windowResult === ctx.sys.nil) {
+            document.getElementById('http-result').innerHTML = '<span style="color: red;">Error: *window* is not set. Please refresh the page.</span>';
+            return;
+          }
+          
+          // The root cause: js-call fails and handleError calls SEND-WITH-DEFAULT! with nah
+          // which requires a prompt handler. The issue is that js-call itself is failing.
+          // Let's test js-global-this and js-call step by step to find where it fails
+          
+          // Wrap the fetch call in a try block to catch errors
+          const escapedUrl = url.replace(/"/g, '\\"');
+          const fetchCode = ctx.read(`
+            (try (js-call (js-global-this) "fetch" "${escapedUrl}")
+                 (catch (e k) 
+                   (do
+                     (print (list 'fetch-error e))
+                     nil)))
+          `);
+          const fetchRun = ctx.api.wisp_run_init(ctx.heap, fetchCode);
+          
+          let fetchResult;
+          try {
+            fetchResult = ctx.api.wisp_run_eval(ctx.heap, fetchRun, 4_000_000) >>> 0;
+          } catch (evalError) {
+            console.error('Fetch evaluation threw error:', evalError);
+            document.getElementById('http-result').innerHTML = `<span style="color: red;">Error: Evaluation failed: ${escapeHtml(evalError.message)}<br><small>The Wisp error handler requires prompt handlers. This is a known limitation when calling js-call from the widget demo.</small></span>`;
+            return;
+          }
+          
+          if (fetchResult === ctx.sys.zap) {
+            document.getElementById('http-result').innerHTML = '<span style="color: red;">Error: HTTP request failed (zap returned)<br><small>js-call failed - the error handler requires prompt handlers that aren\'t set up.</small></span>';
+            return;
+          }
+          
+          if (fetchResult === ctx.sys.nil) {
+            document.getElementById('http-result').innerHTML = '<span style="color: red;">Error: HTTP request failed (error handler returned nil)</span>';
+            return;
+          }
+          
+          // Extract the promise from the external object
+          const tags = { ext: 0x1e };
+          const promiseTag = (fetchResult >>> 27) & 0x1f;
+          
+          if (promiseTag === tags.ext) {
+            const extIdx = ctx.api.wisp_heap_get_ext_idx(ctx.heap, fetchResult) >>> 0;
+            const wasd = window.wasd;
+            if (wasd && wasd.ext) {
+              const jsPromise = wasd.ext.get(extIdx);
+              if (jsPromise && typeof jsPromise.then === 'function') {
+                // Handle promise in JavaScript, but update DOM using Lisp
+                jsPromise
+                  .then(async (response) => {
+                    const text = await response.text();
+                    // Use Lisp to update the DOM with formatted response
+                    const formatted = `<span style="color: #4CAF50;">✓ Success</span>\n\n<strong>Response:</strong>\n${escapeHtml(text)}`;
+                    const escaped = formatted.replace(/"/g, '\\"').replace(/\n/g, '\\n');
+                    const updateCode = ctx.read(`(element-set-html "http-result" "${escaped}")`);
+                    const updateRun = ctx.api.wisp_run_init(ctx.heap, updateCode);
+                    const updateResult = ctx.api.wisp_run_eval(ctx.heap, updateRun, 4_000_000) >>> 0;
+                    if (updateResult === ctx.sys.zap) {
+                      // Fallback to JavaScript if Lisp fails
+                      document.getElementById('http-result').innerHTML = formatted;
+                    }
+                  })
+                  .catch((error) => {
+                    // Use Lisp to update the DOM with error, with fallback
+                    const errorMsg = `<span style="color: red;">✗ Error</span>\n\n${escapeHtml(error.message)}`;
+                    const escaped = errorMsg.replace(/"/g, '\\"').replace(/\n/g, '\\n');
+                    const errorCode = ctx.read(`(element-set-html "http-result" "${escaped}")`);
+                    const errorRun = ctx.api.wisp_run_init(ctx.heap, errorCode);
+                    const errorResult = ctx.api.wisp_run_eval(ctx.heap, errorRun, 4_000_000) >>> 0;
+                    if (errorResult === ctx.sys.zap) {
+                      // Fallback to JavaScript if Lisp fails
+                      document.getElementById('http-result').innerHTML = errorMsg;
+                    }
+                  });
+              } else {
+                document.getElementById('http-result').innerHTML = '<span style="color: red;">Error: Result is not a promise</span>';
+              }
+            } else {
+              document.getElementById('http-result').innerHTML = '<span style="color: red;">Error: Could not access external object</span>';
+            }
+          } else {
+            document.getElementById('http-result').innerHTML = `<span style="color: red;">Error: Expected promise, got tag: 0x${promiseTag.toString(16)}</span>`;
+          }
+        } catch (error) {
+          console.error('HTTP request error:', error);
+          document.getElementById('http-result').innerHTML = `<span style="color: red;">Error: ${escapeHtml(error.message)}</span>`;
+        }
+      };
+
+      return widget;
+    }
+
     // Fibonacci Widget (pure Lisp)
     async function createFibonacciWidget() {
       const ctx = await initWisp();
@@ -685,6 +1012,7 @@
       container.appendChild(createCalculator());
       container.appendChild(createTodoList());
       container.appendChild(await createLispRunner());
+      container.appendChild(await createHttpRequestWidget());
       container.appendChild(await createLispCounter());
       container.appendChild(await createFibonacciWidget());
     }

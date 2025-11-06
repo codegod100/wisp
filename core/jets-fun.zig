@@ -621,6 +621,8 @@ fn copyContinuationSlice(
     ktx: u32,
     tag: u32,
 ) !?ContinuationCopyResult {
+    if (ktx == Wisp.top) return null;
+
     if (try isMatchingPrompt(heap, ktx, tag)) {
         return ContinuationCopyResult{
             .handler = try heap.get(.ktx, .arg, ktx),
@@ -629,13 +631,17 @@ fn copyContinuationSlice(
         };
     }
 
-    const new = try heap.copy(.ktx, ktx);
+    // Try to copy the continuation, but if it fails, return null instead of crashing
+    const new = heap.copy(.ktx, ktx) catch return null;
     var cur = new;
+    var depth: u32 = 0;
+    const max_depth = 1000; // Prevent infinite loops
 
-    while (cur != Wisp.top) {
-        const hop = try heap.get(.ktx, .hop, cur);
+    while (cur != Wisp.top and depth < max_depth) {
+        depth += 1;
+        const hop = heap.get(.ktx, .hop, cur) catch return null;
         if (try isMatchingPrompt(heap, hop, tag)) {
-            try heap.set(.ktx, .hop, cur, top);
+            heap.set(.ktx, .hop, cur, top) catch return null;
             return ContinuationCopyResult{
                 .handler = try heap.get(.ktx, .arg, hop),
                 .e1 = try heap.get(.ktx, .hop, hop),

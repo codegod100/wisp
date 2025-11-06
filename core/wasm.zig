@@ -168,6 +168,18 @@ export fn wisp_run_restart(heap: *Wisp.Heap, run: u32, exp: u32) u32 {
     return run_restart(heap, run, exp) catch Wisp.zap;
 }
 
+export fn wisp_run_err(heap: *Wisp.Heap, run: u32) u32 {
+    return heap.get(.run, .err, run) catch Wisp.zap;
+}
+
+export fn wisp_run_exp(heap: *Wisp.Heap, run: u32) u32 {
+    return heap.get(.run, .exp, run) catch Wisp.zap;
+}
+
+export fn wisp_run_val(heap: *Wisp.Heap, run: u32) u32 {
+    return heap.get(.run, .val, run) catch Wisp.zap;
+}
+
 fn Field(comptime name: [:0]const u8, t: type) std.builtin.Type.StructField {
     return .{
         .name = name,

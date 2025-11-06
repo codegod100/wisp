@@ -81,7 +81,9 @@ fn makeCondition(step: *Step, err: anyerror) !u32 {
 pub fn handleError(step: *Step, err: anyerror) !void {
     const condition = try step.makeCondition(err);
     step.run.err = nil;
-    try Jets.Funs.@"SEND-WITH-DEFAULT!"(step, step.heap.kwd.ERROR, condition, Wisp.nah);
+    // Use nil as default instead of nah - this allows errors to be handled gracefully
+    // when no prompt handler is set up, instead of causing "unreachable" errors
+    try Jets.Funs.@"SEND-WITH-DEFAULT!"(step, step.heap.kwd.ERROR, condition, Wisp.nil);
 }
 
 pub fn attemptOneStep(step: *Step) !void {
