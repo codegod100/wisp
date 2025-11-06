@@ -26,10 +26,11 @@ const Prty = @import("./sexp-prty.zig");
 const Heap = Wisp.Heap;
 
 test "print one" {
-    var list = std.ArrayList(u8){};
-    defer list.deinit(std.testing.allocator);
-    try list.writer(std.testing.allocator).print("{}", .{1});
-    try std.testing.expectEqualStrings("1", list.items);
+    var w = try std.Io.Writer.Allocating.initCapacity(std.testing.allocator, 10);
+    try w.writer.print("{}", .{1});
+    const result = try w.toOwnedSlice();
+    defer std.testing.allocator.free(result);
+    try std.testing.expectEqualStrings("1", result);
 }
 
 pub fn expectDump(
@@ -47,10 +48,9 @@ pub fn printAlloc(
     heap: *Heap,
     word: u32,
 ) ![]const u8 {
-    var list = std.ArrayList(u8){};
-    errdefer list.deinit(allocator);
-    try dump(heap, list.writer(allocator), word);
-    return try list.toOwnedSlice(allocator);
+    var w = try std.Io.Writer.Allocating.initCapacity(allocator, 256);
+    try dump(heap, &w.writer, word);
+    return try w.toOwnedSlice();
 }
 
 pub fn warn(prefix: []const u8, heap: *Heap, word: u32) !void {

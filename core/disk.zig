@@ -42,7 +42,7 @@ pub fn readFileAlloc(
     path: []const u8,
 ) ![]u8 {
     const dir = try cwd(allocator);
-    return dir.readFileAlloc(allocator, path, 1024 * 1024);
+    return dir.readFileAlloc(path, allocator, std.Io.Limit.unlimited);
 }
 
 fn tell(out: anytype, x: u32) !void {

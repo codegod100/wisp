@@ -78,7 +78,7 @@ pub const Key = packed struct {
 };
 
 pub fn generate(rng: *const std.Random) Key {
-    const now: i64 = std.time.timestamp();
+    const now: i64 = @intCast((std.posix.clock_gettime(std.posix.CLOCK.REALTIME) catch unreachable).sec);
     const sec = @as(u16, @intCast(
         @divFloor(now, 60 * 60 * 24) - epochDaysSince1970,
     ));

@@ -723,8 +723,9 @@ pub fn @"TOP?"(step: *Step, ktx: u32) anyerror!void {
 }
 
 pub fn @"READ-LINE"(step: *Step) anyerror!void {
+    var io_instance = std.Io.Threaded.init(step.heap.orb);
     var stdin_buf: [4096]u8 = undefined;
-    var stdin_reader = std.fs.File.stdin().reader(&stdin_buf);
+    var stdin_reader = std.fs.File.stdin().reader(io_instance.io(), &stdin_buf);
     const stdin = &stdin_reader.interface;
 
     if (try File.readLine(step.heap.orb, stdin)) |line| {
@@ -736,8 +737,9 @@ pub fn @"READ-LINE"(step: *Step) anyerror!void {
 }
 
 pub fn @"READ-FROM-STDIN"(step: *Step) anyerror!void {
+    var io_instance = std.Io.Threaded.init(step.heap.orb);
     var stdin_buf: [4096]u8 = undefined;
-    var stdin_reader = std.fs.File.stdin().reader(&stdin_buf);
+    var stdin_reader = std.fs.File.stdin().reader(io_instance.io(), &stdin_buf);
     const stdin = &stdin_reader.interface;
 
     if (try Sexp.readValueFromStream(step.heap, stdin)) |val| {
@@ -761,8 +763,9 @@ pub fn @"READ-BYTES"(step: *Step, n: u32) anyerror!void {
     const buffer = try step.heap.orb.alloc(u8, n);
     defer step.heap.orb.free(buffer);
 
+    var io_instance = std.Io.Threaded.init(step.heap.orb);
     var stdin_buf: [4096]u8 = undefined;
-    var stdin_reader = std.fs.File.stdin().reader(&stdin_buf);
+    var stdin_reader = std.fs.File.stdin().reader(io_instance.io(), &stdin_buf);
     const stdin = &stdin_reader.interface;
 
     try stdin.readSliceAll(buffer);

@@ -60,8 +60,9 @@ fn readSexp(
 }
 
 pub fn repl() anyerror!void {
+    var io_instance = std.Io.Threaded.init(orb);
     var stdin_buf: [4096]u8 = undefined;
-    var stdin_reader = std.fs.File.stdin().reader(&stdin_buf);
+    var stdin_reader = std.fs.File.stdin().reader(io_instance.io(), &stdin_buf);
     const stdin = &stdin_reader.interface;
 
     var stdout_buf: [4096]u8 = undefined;

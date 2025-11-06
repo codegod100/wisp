@@ -116,7 +116,7 @@ pub fn save(heap: *Wisp.Heap, name: []const u8) !void {
         }
     }
 
-    try file.writevAll(iovecs[0 .. i + 3]);
+    _ = try file.writev(iovecs[0 .. i + 3]);
 }
 
 const Error = error{
@@ -129,17 +129,16 @@ pub fn load(orb: Wisp.Orb, name: []const u8) !Wisp.Heap {
     defer arena.deinit();
 
     var rootdir = try @import("./file.zig").cwd(arena.allocator());
-    var file = try rootdir.openFile(name, .{});
-    defer file.close();
-    const bytes = try file.readToEndAlloc(arena.allocator(), std.math.maxInt(usize));
+    const bytes = try rootdir.readFileAlloc(name, arena.allocator(), std.Io.Limit.unlimited);
     return loadFromMemory(orb, bytes);
 }
 
 pub fn loadFromMemory(orb: Wisp.Orb, bytes: []const u8) !Wisp.Heap {
-    var stream = std.io.fixedBufferStream(bytes);
-    var reader = stream.reader();
-    const header = try reader.readStruct(Header);
-    const header_value = header;
+    var reader_state = std.Io.Reader.fixed(bytes);
+    var reader = &reader_state;
+    var header_bytes: [@sizeOf(Header)]u8 align(@alignOf(Header)) = undefined;
+    try reader.readSliceAll(&header_bytes);
+    const header_value = @as(*const Header, @ptrCast(@alignCast(&header_bytes))).*;
 
     var heap = Wisp.Heap{
         .orb = orb,
@@ -158,11 +157,11 @@ pub fn loadFromMemory(orb: Wisp.Orb, bytes: []const u8) !Wisp.Heap {
     heap.v32.list.items.len = header_value.v32len;
 
     if (header_value.v08len > 0) {
-        try reader.readNoEof(heap.v08.items);
+        try reader.readSliceAll(heap.v08.items);
     }
 
     if (header_value.v32len > 0) {
-        try reader.readNoEof(
+        try reader.readSliceAll(
             @as([*]u8, @ptrCast(heap.v32.list.items.ptr))[0 .. header_value.v32len * 4],
         );
     }
@@ -176,7 +175,7 @@ pub fn loadFromMemory(orb: Wisp.Orb, bytes: []const u8) !Wisp.Heap {
         inline for (std.meta.fields(Wisp.Row(tag)), 0..) |_, j| {
             const col = tab.col(@as(Wisp.Col(tag), @enumFromInt(j)));
             if (col.len > 0) {
-                try reader.readNoEof(
+                try reader.readSliceAll(
                     @as([*]u8, @ptrCast(col.ptr))[0 .. col.len * 4],
                 );
             }

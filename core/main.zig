@@ -70,8 +70,7 @@ pub fn main() anyerror!void {
     if (std.mem.eql(u8, cmd, "run")) {
         const path = args.next() orelse return help(stderr);
         const root = try File.cwd(tmp);
-        const file = try root.openFile(path, .{});
-        const code = try file.readToEndAlloc(tmp, maxCodeSize);
+        const code = try root.readFileAlloc(path, tmp, std.Io.Limit.limited(maxCodeSize));
 
         var heap = try Wisp.Heap.fromEmbeddedCore(orb);
         defer heap.deinit();
