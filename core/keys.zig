@@ -78,10 +78,17 @@ pub const Key = packed struct {
 };
 
 pub fn generate(rng: *const std.Random) Key {
-    const now: i64 = @intCast((std.posix.clock_gettime(std.posix.CLOCK.REALTIME) catch unreachable).sec);
-    const sec = @as(u16, @intCast(
-        @divFloor(now, 60 * 60 * 24) - epochDaysSince1970,
-    ));
+    const builtin = @import("builtin");
+    const sec: u16 = if (builtin.os.tag == .wasi)
+        @as(u16, 0) // WASM: use day 0 (epoch start) since we can't get real time
+    else blk: {
+        // Only import posix for non-WASI targets to avoid Zig 0.16 bug
+        const posix = @import("std").posix;
+        const now: i64 = @intCast((posix.clock_gettime(posix.CLOCK.REALTIME) catch unreachable).sec);
+        break :blk @as(u16, @intCast(
+            @divFloor(now, 60 * 60 * 24) - epochDaysSince1970,
+        ));
+    };
 
     const rnd = rng.int(u48);
     return Key.of(sec, rnd);
