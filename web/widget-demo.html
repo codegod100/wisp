@@ -805,7 +805,7 @@
         <p>Make HTTP requests using Lisp</p>
         <input type="text" id="http-url" value="https://api.github.com/users/octocat" style="width: 100%; padding: 8px; margin: 10px 0; box-sizing: border-box;">
         <button onclick="makeHttpRequest()" style="width: 100%; padding: 10px; font-size: 16px;">Fetch</button>
-        <div class="result" id="http-result" style="margin-top: 15px; padding: 10px; background: #1e1e1e; border-radius: 5px; max-height: 400px; overflow-y: auto; white-space: pre-wrap; font-family: monospace; font-size: 12px;">Click "Fetch" to make a request...</div>
+        <div class="result" id="http-result" style="margin-top: 15px; padding: 10px; background: #1e1e1e; border-radius: 5px; max-height: 400px; overflow-y: auto; white-space: pre-wrap; font-family: monospace; font-size: 12px; color: #e0e0e0;">Click "Fetch" to make a request...</div>
       `;
 
       // Minimal JavaScript glue - JS gets URL, Lisp creates promise and updates DOM, JS handles promise chain
@@ -872,47 +872,64 @@
           // Extract the promise from the external object
           const tags = { ext: 0x1e };
           const promiseTag = (fetchResult >>> 27) & 0x1f;
+          console.log('Fetch result:', fetchResult, 'tag:', promiseTag.toString(16), 'expected ext:', tags.ext.toString(16));
           
           if (promiseTag === tags.ext) {
             const extIdx = ctx.api.wisp_heap_get_ext_idx(ctx.heap, fetchResult) >>> 0;
+            console.log('External index:', extIdx);
             const wasd = window.wasd;
             if (wasd && wasd.ext) {
               const jsPromise = wasd.ext.get(extIdx);
+              console.log('Got promise from ext:', jsPromise, 'is promise?', jsPromise && typeof jsPromise.then === 'function');
               if (jsPromise && typeof jsPromise.then === 'function') {
-                // Handle promise in JavaScript, but update DOM using Lisp
+                // Handle promise in JavaScript - use JavaScript directly for DOM updates for reliability
+                console.log('Setting up promise handlers...');
+                const resultDiv = document.getElementById('http-result');
+                if (!resultDiv) {
+                  console.error('http-result div not found!');
+                  return;
+                }
+                
+                // Show loading state
+                resultDiv.innerHTML = '<span style="color: #e0e0e0;">Loading...</span>';
+                resultDiv.style.color = '#e0e0e0';
+                
                 jsPromise
                   .then(async (response) => {
-                    const text = await response.text();
-                    // Use Lisp to update the DOM with formatted response
-                    const formatted = `<span style="color: #4CAF50;">✓ Success</span>\n\n<strong>Response:</strong>\n${escapeHtml(text)}`;
-                    const escaped = formatted.replace(/"/g, '\\"').replace(/\n/g, '\\n');
-                    const updateCode = ctx.read(`(element-set-html "http-result" "${escaped}")`);
-                    const updateRun = ctx.api.wisp_run_init(ctx.heap, updateCode);
-                    const updateResult = ctx.api.wisp_run_eval(ctx.heap, updateRun, 4_000_000) >>> 0;
-                    if (updateResult === ctx.sys.zap) {
-                      // Fallback to JavaScript if Lisp fails
-                      document.getElementById('http-result').innerHTML = formatted;
+                    console.log('Promise resolved, response:', response);
+                    try {
+                      const text = await response.text();
+                      console.log('Response text length:', text.length, 'first 100 chars:', text.substring(0, 100));
+                      
+                      // Format and display using JavaScript directly
+                      const formatted = `<span style="color: #4CAF50;">✓ Success</span>\n\n<strong>Response:</strong>\n<pre style="color: #e0e0e0;">${escapeHtml(text)}</pre>`;
+                      
+                      console.log('Updating DOM directly with JavaScript...');
+                      resultDiv.innerHTML = formatted;
+                      resultDiv.style.color = '#e0e0e0';
+                      console.log('DOM updated, innerHTML length:', resultDiv.innerHTML.length);
+                    } catch (textError) {
+                      console.error('Error reading response text:', textError);
+                      resultDiv.innerHTML = `<span style="color: red;">Error reading response: ${escapeHtml(textError.message)}</span>`;
+                      resultDiv.style.color = '#e0e0e0';
                     }
                   })
                   .catch((error) => {
-                    // Use Lisp to update the DOM with error, with fallback
+                    console.error('Promise rejected:', error);
                     const errorMsg = `<span style="color: red;">✗ Error</span>\n\n${escapeHtml(error.message)}`;
-                    const escaped = errorMsg.replace(/"/g, '\\"').replace(/\n/g, '\\n');
-                    const errorCode = ctx.read(`(element-set-html "http-result" "${escaped}")`);
-                    const errorRun = ctx.api.wisp_run_init(ctx.heap, errorCode);
-                    const errorResult = ctx.api.wisp_run_eval(ctx.heap, errorRun, 4_000_000) >>> 0;
-                    if (errorResult === ctx.sys.zap) {
-                      // Fallback to JavaScript if Lisp fails
-                      document.getElementById('http-result').innerHTML = errorMsg;
-                    }
+                    resultDiv.innerHTML = errorMsg;
+                    resultDiv.style.color = '#e0e0e0';
                   });
               } else {
+                console.error('Result is not a promise:', jsPromise);
                 document.getElementById('http-result').innerHTML = '<span style="color: red;">Error: Result is not a promise</span>';
               }
             } else {
+              console.error('wasd or wasd.ext not available');
               document.getElementById('http-result').innerHTML = '<span style="color: red;">Error: Could not access external object</span>';
             }
           } else {
+            console.error('Expected external object, got tag:', promiseTag.toString(16));
             document.getElementById('http-result').innerHTML = `<span style="color: red;">Error: Expected promise, got tag: 0x${promiseTag.toString(16)}</span>`;
           }
         } catch (error) {
