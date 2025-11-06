@@ -48,10 +48,10 @@ export default class WASI {
 
   exports() {
     return {
-      proc_exit() {},
+      proc_exit: () => {},
 
-      fd_prestat_get() {},
-      fd_prestat_dir_name() {},
+      fd_prestat_get: () => WASI_EBADF,
+      fd_prestat_dir_name: () => WASI_EBADF,
 
       fd_write: (fd, iovs, iovsLen, nwritten) => {
         const view = this.getDataView();
@@ -107,9 +107,9 @@ export default class WASI {
         return WASI_EBADF;
       },
 
-      fd_close() {},
-      fd_read() {},
-      fd_pread() {
+      fd_close: () => WASI_ESUCCESS,
+      fd_read: () => WASI_EBADF,
+      fd_pread: () => {
         // "I was in Nashville, Tennessee last year.
         // After the show I went to a Waffle House.
         // I'm not proud of it, I was hungry.
@@ -118,22 +118,22 @@ export default class WASI {
         // Isn't that the weirdest fuckin' question you've ever heard?
         // Not what am I reading, but what am I reading FOR?
         // Well, goddamnit, ya stumped me!"
-
         return WASI_EBADF;
       },
 
-      fd_seek() {},
+      fd_seek: () => WASI_EBADF,
 
-      fd_fdstat_get() {},
-      fd_fdstat_set_flags() {},
+      fd_fdstat_get: () => WASI_EBADF,
+      fd_fdstat_set_flags: () => WASI_EBADF,
 
-      path_open() {},
-      path_rename() {},
-      path_create_directory() {},
-      path_remove_directory() {},
-      path_unlink_file() {},
+      path_open: () => WASI_EBADF,
+      path_rename: () => WASI_EBADF,
+      path_create_directory: () => WASI_EBADF,
+      path_remove_directory: () => WASI_EBADF,
+      path_unlink_file: () => WASI_EBADF,
+      path_filestat_get: () => WASI_EBADF,
 
-      fd_filestat_get() {},
+      fd_filestat_get: () => WASI_EBADF,
 
       random_get: (buf_ptr, buf_len) => {
         const buffer = new Uint8Array(this.memory.buffer, buf_ptr, buf_len);
@@ -159,6 +159,8 @@ export default class WASI {
 
         return 0;
       },
+
+      poll_oneoff: () => WASI_EBADF,
     };
   }
 }

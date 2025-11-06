@@ -3,3 +3,7 @@ set -ex
 node ./build.mjs
 mkdir -p dist
 cp ../core/zig-out/bin/wisp.wasm dist/
+cp index.html index.js index.css dist/
+cp wisp.js wasi.js dist/
+cp -r lib dist/ 2>/dev/null || true
+cp *.wisp dist/ 2>/dev/null || true
