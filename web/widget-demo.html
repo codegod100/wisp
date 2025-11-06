@@ -310,23 +310,9 @@
       widget.className = 'widget';
       widget.innerHTML = `
         <h2>💻 Lisp Code Runner</h2>
-        <textarea class="code-editor" id="lisp-code" placeholder="Enter Lisp code here...">(+ 1 2 3)</textarea>
-        <p style="font-size: 0.85em; color: #888; margin-top: 8px;">
-          <strong>Debug fetch:</strong> Try these in order:<br>
-          <code>*window*</code> - Check if *window* is set<br>
-          <code>(js-object)</code> - Test js-object with no args<br>
-          <code>(send! :async "test")</code> - Test send! (should fail if no prompt)<br>
-          <code>(js-call (js-global-this) "fetch" "https://api.github.com/users/octocat" (js-object))</code> - Direct fetch call
-        </p>
-        <p style="font-size: 0.85em; color: #888; margin-top: 8px;">
-          <strong>Note:</strong> For <code>fetch</code>, try: <code>(js-global-this)</code> first to test if browser APIs work
-        </p>
-        <p style="font-size: 12px; color: #666; margin: 5px 0;">
-          <strong>Try:</strong> <code>(+ 1 2 3)</code>, <code>(* 2 3)</code>, <code>(list 1 2 3)</code><br>
-          <strong>Note:</strong> Load <code>format.wisp</code> first to use <code>format</code> function!
-        </p>
-        <button onclick="runLispCode()">Run</button>
-        <div class="result" id="lisp-result">Result will appear here...</div>
+        <textarea class="code-editor" id="lisp-code" placeholder="Enter Lisp code here..."></textarea>
+        <button onclick="runLispCode()" style="margin-top: 10px;">Run</button>
+        <div class="result" id="lisp-result" style="margin-top: 10px;">Result will appear here...</div>
       `;
 
       // Load format.wisp and js.wisp if not already loaded
@@ -461,6 +447,20 @@
           }
         }
         
+        // Try to load generics.wisp if using defgeneric or defmethod
+        if (!window.genericsLoaded && (code.includes('defgeneric') || code.includes('defmethod'))) {
+          try {
+            resultDiv.innerHTML = '<span style="color: #666;">Loading generics.wisp...</span>';
+            window.genericsLoaded = await loadWispFile('generics.wisp');
+            if (!window.genericsLoaded) {
+              resultDiv.innerHTML = '<span style="color: orange;">Warning: generics.wisp failed to load. defgeneric/defmethod may not work.</span>';
+            }
+          } catch (e) {
+            console.warn('Could not load generics.wisp:', e);
+            resultDiv.innerHTML = '<span style="color: orange;">Warning: Could not load generics.wisp</span>';
+          }
+        }
+        
         resultDiv.innerHTML = '<span style="color: #666;">Running...</span>';
         
         try {
@@ -479,8 +479,19 @@
             }
             // Single expression - evaluate it directly
             const run = ctx.api.wisp_run_init(ctx.heap, forms);
-            console.log('Run initialized:', run);
             lastResult = ctx.api.wisp_run_eval(ctx.heap, run, 4_000_000) >>> 0;
+            
+            // Print result to console
+            if (lastResult === ctx.sys.zap) {
+              console.log('Result: zap (error)');
+            } else {
+              try {
+                const resultStr = formatResult(ctx, lastResult);
+                console.log('Result:', resultStr);
+              } catch (formatError) {
+                console.log('Result: 0x' + lastResult.toString(16) + ' (format error)');
+              }
+            }
           } else {
             // Multiple expressions - evaluate each one in sequence
             console.log('Read multiple expressions, forms:', forms);
@@ -521,6 +532,18 @@
               const run = ctx.api.wisp_run_init(ctx.heap, form);
               lastResult = ctx.api.wisp_run_eval(ctx.heap, run, 4_000_000) >>> 0;
               
+              // Print result of each form to console
+              if (lastResult === ctx.sys.zap) {
+                console.log(`Form ${formCount} result: zap (error)`);
+              } else {
+                try {
+                  const resultStr = formatResult(ctx, lastResult);
+                  console.log(`Form ${formCount} result:`, resultStr);
+                } catch (formatError) {
+                  console.log(`Form ${formCount} result: 0x${lastResult.toString(16)} (format error)`);
+                }
+              }
+              
               if (lastResult === ctx.sys.zap) {
                 // Try to get error details from the run
                 try {
@@ -558,25 +581,16 @@
             console.log(`Evaluated ${formCount} form(s)`);
           }
           
-          console.log('Evaluation result:', lastResult, 'hex:', '0x' + lastResult.toString(16));
-          console.log('System values:', {
-            nil: ctx.sys.nil,
-            t: ctx.sys.t,
-            zap: ctx.sys.zap
-          });
-
+          // Show result (works for both single and multiple expressions)
           if (lastResult === ctx.sys.zap) {
-            console.error('Evaluation returned zap (error)');
-            resultDiv.innerHTML = '<span style="color: red;">Error: Evaluation failed (zap).<br><small>The function or syntax may not be available in Wisp. Try simpler code like <code>(+ 1 2)</code> or <code>(* 3 4)</code></small></span>';
+            resultDiv.innerHTML = '<span style="color: red;">Error: Evaluation failed (zap).<br><small>The function or syntax may not be available in Wisp.</small></span>';
             return;
           }
 
           try {
             const resultStr = formatResult(ctx, lastResult);
-            console.log('Formatted result:', resultStr);
             resultDiv.innerHTML = `<strong>Result:</strong> <code>${escapeHtml(resultStr)}</code>`;
           } catch (formatError) {
-            console.error('Format error:', formatError);
             resultDiv.innerHTML = `<span style="color: orange;">Result: 0x${lastResult.toString(16)} (format error: ${escapeHtml(formatError.message)})</span>`;
           }
         } catch (error) {
@@ -772,6 +786,24 @@
               ctx.api.wisp_run_eval(ctx.heap, setWindowRun, 4_000_000) >>> 0;
             } catch (e) {
               console.warn('Could not set *window*:', e);
+            }
+            
+            // Load generics.wisp for defgeneric/defmethod support
+            try {
+              const genericsResponse = await fetch('generics.wisp');
+              const genericsCode = await genericsResponse.text();
+              const genericsForms = ctx.readMany(genericsCode);
+              if (genericsForms !== ctx.sys.zap) {
+                let current = genericsForms;
+                while (current !== ctx.sys.nil) {
+                  const form = ctx.api.wisp_heap_get_duo_head(ctx.heap, current) >>> 0;
+                  const run = ctx.api.wisp_run_init(ctx.heap, form);
+                  ctx.api.wisp_run_eval(ctx.heap, run, 4_000_000) >>> 0;
+                  current = ctx.api.wisp_heap_get_duo_tail(ctx.heap, current) >>> 0;
+                }
+              }
+            } catch (e) {
+              console.warn('Could not load generics.wisp:', e);
             }
             
             const httpCode = ctx.read(`
@@ -1024,9 +1056,9 @@
       await initWisp();
       
       const container = document.getElementById('widgets');
+      container.appendChild(await createLispRunner());
       container.appendChild(createCalculator());
       container.appendChild(createTodoList());
-      container.appendChild(await createLispRunner());
       container.appendChild(await createHttpRequestWidget());
       container.appendChild(await createLispCounter());
       container.appendChild(await createFibonacciWidget());
