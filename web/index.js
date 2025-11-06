@@ -78,6 +78,8 @@ onload = async () => {
   if (result === ctx.sys.zap) throw new Error();
 
   ctx.free_0(pkgname, funname);
+  
+  console.log("Wisp IDE initialized successfully");
 };
 
 function startEditor(element, doc, symbols, done) {

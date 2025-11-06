@@ -1,0 +1,258 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Wisp Lisp - Simple Demo</title>
+  <style>
+    body {
+      font-family: monospace;
+      max-width: 800px;
+      margin: 40px auto;
+      padding: 20px;
+      background: #1a1a1a;
+      color: #fff;
+    }
+    h1 { color: #4CAF50; }
+    .code {
+      background: #2a2a2a;
+      padding: 15px;
+      border-radius: 5px;
+      margin: 10px 0;
+      border-left: 3px solid #4CAF50;
+    }
+    .result {
+      background: #2a2a2a;
+      padding: 15px;
+      border-radius: 5px;
+      margin: 10px 0;
+      border-left: 3px solid #2196F3;
+    }
+    .error {
+      color: #f44336;
+    }
+    button {
+      background: #4CAF50;
+      color: white;
+      border: none;
+      padding: 10px 20px;
+      border-radius: 5px;
+      cursor: pointer;
+      font-size: 16px;
+      margin: 10px 5px;
+    }
+    button:hover {
+      background: #45a049;
+    }
+    textarea {
+      width: 100%;
+      min-height: 100px;
+      background: #2a2a2a;
+      color: #fff;
+      border: 1px solid #444;
+      padding: 10px;
+      font-family: monospace;
+      border-radius: 5px;
+    }
+  </style>
+</head>
+<body>
+  <h1>Wisp Lisp - Simple Execution Demo</h1>
+  <p>This demo runs Wisp Lisp code directly in WebAssembly, no IDE.</p>
+  
+  <h2>Example 1: Basic Arithmetic</h2>
+  <div class="code">
+    <pre>(+ 1 2 3 4)</pre>
+  </div>
+  <button onclick="runExample1()">Run</button>
+  <div id="result1" class="result" style="display:none;"></div>
+
+  <h2>Example 2: List Operations</h2>
+  <div class="code">
+    <pre>(list 1 2 3)</pre>
+  </div>
+  <button onclick="runExample2()">Run</button>
+  <div id="result2" class="result" style="display:none;"></div>
+
+  <h2>Example 3: Define and Call Function</h2>
+  <div class="code">
+    <pre>(defun square (x) (* x x))
+(square 5)</pre>
+  </div>
+  <button onclick="runExample3()">Run</button>
+  <div id="result3" class="result" style="display:none;"></div>
+
+  <h2>Run Your Own Code</h2>
+  <textarea id="customCode" placeholder="Enter Wisp Lisp code here...">(+ 10 20)</textarea>
+  <button onclick="runCustom()">Run Code</button>
+  <div id="customResult" class="result" style="display:none;"></div>
+
+  <script type="module">
+    import { Wisp } from "./wisp.js";
+    import WASI from "./wasi.js";
+
+    let wispContext = null;
+
+    async function initWisp() {
+      if (wispContext) return wispContext;
+
+      const wasi = new WASI();
+      
+      // Minimal DOM interface - just stub functions for simple execution
+      const minimalDOM = {
+        patch: () => 0,
+        open_start: () => {},
+        open_end: () => {},
+        attr: () => {},
+        close: () => {},
+        text: () => {},
+        object: () => 0,
+        globalThis: () => 0,
+        new: () => 0,
+        call: () => 0,
+        callFunction: () => 0,
+        get: () => 0,
+        set: () => {},
+        on_keydown: () => {},
+        addWindowEventHandler: () => {},
+        release: () => {},
+      };
+      
+      const wasmModule = await WebAssembly.compileStreaming(fetch("wisp.wasm"));
+      const instance = await WebAssembly.instantiate(wasmModule, {
+        wasi_snapshot_preview1: wasi.exports(),
+        dom: minimalDOM
+      });
+
+      wasi.setMemory(instance.exports.memory);
+      wispContext = new Wisp(instance);
+      return wispContext;
+    }
+
+    async function runCode(code) {
+      try {
+        const ctx = await initWisp();
+        
+        // Read and evaluate the code
+        const src = ctx.read(code);
+        const run = ctx.api.wisp_run_init(ctx.heap, src);
+        const result = ctx.api.wisp_run_eval(ctx.heap, run, 4_000_000) >>> 0;
+
+        if (result === ctx.sys.zap) {
+          return { error: "Evaluation failed (zap)" };
+        }
+
+        // Convert result to readable format
+        let resultStr = formatResult(ctx, result);
+        return { success: true, result: resultStr };
+      } catch (error) {
+        return { error: error.message };
+      }
+    }
+
+    function formatResult(ctx, value) {
+      value = value >>> 0;
+      
+      // Check for special values
+      if (value === ctx.sys.nil) return "nil";
+      if (value === ctx.sys.t) return "t";
+      if (value === ctx.sys.zap) return "zap";
+      
+      // Check if it's a tagged pointer
+      const tags = {
+        v08: 0x1a,  // string
+        v32: 0x19,  // vector
+        duo: 0x15,  // cons/pair
+      };
+      
+      let tag = (value & ((0b11111 << (32 - 5)) >>> 0)) >>> (32 - 5);
+      
+      if (tag === tags.v08) {
+        // String
+        try {
+          return ctx.loadString(value);
+        } catch (e) {
+          return `[string: ${value}]`;
+        }
+      } else if (tag === tags.v32) {
+        // Vector
+        try {
+          const vec = ctx.loadVector(value);
+          return `[${vec.map(v => formatResult(ctx, v)).join(", ")}]`;
+        } catch (e) {
+          return `[vector: ${value}]`;
+        }
+      } else if (tag === tags.duo) {
+        // List/cons
+        try {
+          const head = ctx.api.wisp_heap_get_duo_head(ctx.heap, value) >>> 0;
+          const tail = ctx.api.wisp_heap_get_duo_tail(ctx.heap, value) >>> 0;
+          if (tail === ctx.sys.nil) {
+            return `(${formatResult(ctx, head)})`;
+          } else {
+            return `(${formatResult(ctx, head)} . ${formatResult(ctx, tail)})`;
+          }
+        } catch (e) {
+          return `[cons: ${value}]`;
+        }
+      } else if ((value & ((1 << 31) >>> 0)) === 0) {
+        // Integer (untagged)
+        return value.toString();
+      } else {
+        // Unknown type
+        return `[unknown: 0x${value.toString(16)}]`;
+      }
+    }
+
+    window.runExample1 = async () => {
+      const result = await runCode("(+ 1 2 3 4)");
+      const div = document.getElementById("result1");
+      div.style.display = "block";
+      if (result.error) {
+        div.innerHTML = `<span class="error">Error: ${result.error}</span>`;
+      } else {
+        div.innerHTML = `<strong>Result:</strong> ${result.result}`;
+      }
+    };
+
+    window.runExample2 = async () => {
+      const result = await runCode("(list 1 2 3)");
+      const div = document.getElementById("result2");
+      div.style.display = "block";
+      if (result.error) {
+        div.innerHTML = `<span class="error">Error: ${result.error}</span>`;
+      } else {
+        div.innerHTML = `<strong>Result:</strong> ${result.result}`;
+      }
+    };
+
+    window.runExample3 = async () => {
+      const result = await runCode("(defun square (x) (* x x))\n(square 5)");
+      const div = document.getElementById("result3");
+      div.style.display = "block";
+      if (result.error) {
+        div.innerHTML = `<span class="error">Error: ${result.error}</span>`;
+      } else {
+        div.innerHTML = `<strong>Result:</strong> ${result.result}`;
+      }
+    };
+
+    window.runCustom = async () => {
+      const code = document.getElementById("customCode").value;
+      const result = await runCode(code);
+      const div = document.getElementById("customResult");
+      div.style.display = "block";
+      if (result.error) {
+        div.innerHTML = `<span class="error">Error: ${result.error}</span>`;
+      } else {
+        div.innerHTML = `<strong>Result:</strong> ${result.result}`;
+      }
+    };
+
+    // Initialize on load
+    initWisp().then(() => {
+      console.log("Wisp initialized and ready!");
+    });
+  </script>
+</body>
+</html>
+
