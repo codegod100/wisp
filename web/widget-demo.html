@@ -785,9 +785,19 @@
               (defun element-set-text (id text)
                 (js-set! (query-selector (string-append "#" id)) "textContent" text))
               
-              ;; HTTP request handler - uses js-call to call window.fetch
-              (defun http-fetch (url)
-                (js-call (js-global-this) "fetch" url))
+              ;; Complete HTTP request handler - mostly Lisp, minimal JS glue
+              ;; Simplified: just get URL and return fetch promise, handle response in JS
+              (defun http-request (url-id result-id)
+                (let ((url (element-get-value url-id)))
+                  (if (nil? url)
+                      (do
+                        (element-set-html result-id "<span style=\\"color: orange;\\">Please enter a URL</span>")
+                        nil)
+                    (do
+                      ;; Show loading state
+                      (element-set-html result-id "<span style=\\"color: #e0e0e0;\\">Loading...</span>")
+                      ;; Return the fetch promise - JS will handle the response
+                      (js-call *window* "fetch" url)))))
             `);
             const httpRun = ctx.api.wisp_run_init(ctx.heap, httpCode);
             ctx.api.wisp_run_eval(ctx.heap, httpRun, 4_000_000) >>> 0;
@@ -798,6 +808,124 @@
         }
       }
       
+      // Minimal JavaScript glue - just calls the Lisp function
+      // Define this BEFORE creating the widget so it's available when the button is clicked
+      window.makeHttpRequest = async () => {
+        console.log('makeHttpRequest called');
+        try {
+          const ctx = await initWisp();
+          
+          // Ensure js.wisp is loaded
+          if (!window.jsLoaded) {
+            try {
+              const response = await fetch('js.wisp');
+              const jsCode = await response.text();
+              const jsForms = ctx.readMany(jsCode);
+              if (jsForms !== ctx.sys.zap) {
+                let current = jsForms;
+                while (current !== ctx.sys.nil) {
+                  const form = ctx.api.wisp_heap_get_duo_head(ctx.heap, current) >>> 0;
+                  const run = ctx.api.wisp_run_init(ctx.heap, form);
+                  ctx.api.wisp_run_eval(ctx.heap, run, 4_000_000) >>> 0;
+                  current = ctx.api.wisp_heap_get_duo_tail(ctx.heap, current) >>> 0;
+                }
+                window.jsLoaded = true;
+              }
+            } catch (e) {
+              console.warn('Could not load js.wisp:', e);
+            }
+          }
+          
+          // Ensure *window* is set
+          try {
+            const setWindowCode = ctx.read('(try (set-symbol-value! (quote *window*) (js-global-this)) (catch (e k) nil))');
+            const setWindowRun = ctx.api.wisp_run_init(ctx.heap, setWindowCode);
+            ctx.api.wisp_run_eval(ctx.heap, setWindowRun, 4_000_000) >>> 0;
+          } catch (e) {
+            console.warn('Could not set *window*:', e);
+          }
+          
+          // First test if js-call works at all
+          console.log('Testing js-call with window.fetch...');
+          const testCode = ctx.read('(js-call *window* "fetch" "https://api.github.com/users/octocat")');
+          const testRun = ctx.api.wisp_run_init(ctx.heap, testCode);
+          const testResult = ctx.api.wisp_run_eval(ctx.heap, testRun, 4_000_000) >>> 0;
+          console.log('Direct js-call test result:', testResult, 'tag:', (testResult >>> 27) & 0x1f);
+          
+          // Call the Lisp function - it returns a promise that we need to handle
+          console.log('Calling http-request Lisp function...');
+          const requestCode = ctx.read('(http-request "http-url" "http-result")');
+          const requestRun = ctx.api.wisp_run_init(ctx.heap, requestCode);
+          const result = ctx.api.wisp_run_eval(ctx.heap, requestRun, 10_000_000) >>> 0; // More steps for async operations
+          console.log('Lisp function returned:', result, 'zap?', result === ctx.sys.zap, 'nil?', result === ctx.sys.nil);
+          
+          if (result === ctx.sys.zap) {
+            // Fallback error message if Lisp fails
+            document.getElementById('http-result').innerHTML = '<span style="color: red;">Error: Request failed</span>';
+            return;
+          }
+          
+          if (result === ctx.sys.nil) {
+            // Function returned nil (probably empty URL or error)
+            return;
+          }
+          
+          // Extract the promise from the external object
+          const tags = { ext: 0x1e };
+          const promiseTag = (result >>> 27) & 0x1f;
+          console.log('Result tag:', promiseTag.toString(16), 'expected ext:', tags.ext.toString(16));
+          
+          if (promiseTag === tags.ext) {
+            const extIdx = ctx.api.wisp_heap_get_ext_idx(ctx.heap, result) >>> 0;
+            const wasd = window.wasd;
+            if (wasd && wasd.ext) {
+              const jsPromise = wasd.ext.get(extIdx);
+              console.log('Got promise from fetch, handling response...');
+              if (jsPromise && typeof jsPromise.then === 'function') {
+                // Handle the promise in JavaScript - get response and update DOM using Lisp
+                jsPromise
+                  .then(async (response) => {
+                    const text = await response.text();
+                    // Use Lisp to update the DOM
+                    const formatted = `<span style="color: #4CAF50;">✓ Success</span>\n\n<strong>Response:</strong>\n<pre style="color: #e0e0e0;">${escapeHtml(text)}</pre>`;
+                    const escaped = formatted.replace(/"/g, '\\"').replace(/\n/g, '\\n');
+                    const updateCode = ctx.read(`(element-set-html "http-result" "${escaped}")`);
+                    const updateRun = ctx.api.wisp_run_init(ctx.heap, updateCode);
+                    const updateResult = ctx.api.wisp_run_eval(ctx.heap, updateRun, 4_000_000) >>> 0;
+                    if (updateResult === ctx.sys.zap) {
+                      // Fallback to JavaScript if Lisp fails
+                      document.getElementById('http-result').innerHTML = formatted;
+                      document.getElementById('http-result').style.color = '#e0e0e0';
+                    }
+                  })
+                  .catch((error) => {
+                    console.error('Fetch failed:', error);
+                    const errorMsg = `<span style="color: red;">✗ Error</span>\n\n${escapeHtml(error.message)}`;
+                    const escaped = errorMsg.replace(/"/g, '\\"').replace(/\n/g, '\\n');
+                    const errorCode = ctx.read(`(element-set-html "http-result" "${escaped}")`);
+                    const errorRun = ctx.api.wisp_run_init(ctx.heap, errorCode);
+                    const errorResult = ctx.api.wisp_run_eval(ctx.heap, errorRun, 4_000_000) >>> 0;
+                    if (errorResult === ctx.sys.zap) {
+                      // Fallback to JavaScript if Lisp fails
+                      document.getElementById('http-result').innerHTML = errorMsg;
+                      document.getElementById('http-result').style.color = '#e0e0e0';
+                    }
+                  });
+              }
+            }
+          } else {
+            console.log('Result is not a promise, got tag:', promiseTag.toString(16));
+          }
+        } catch (error) {
+          console.error('HTTP request error:', error);
+          const resultDiv = document.getElementById('http-result');
+          if (resultDiv) {
+            resultDiv.innerHTML = `<span style="color: red;">Error: ${escapeHtml(error.message)}</span>`;
+            resultDiv.style.color = '#e0e0e0';
+          }
+        }
+      };
+
       const widget = document.createElement('div');
       widget.className = 'widget';
       widget.innerHTML = `
@@ -807,136 +935,6 @@
         <button onclick="makeHttpRequest()" style="width: 100%; padding: 10px; font-size: 16px;">Fetch</button>
         <div class="result" id="http-result" style="margin-top: 15px; padding: 10px; background: #1e1e1e; border-radius: 5px; max-height: 400px; overflow-y: auto; white-space: pre-wrap; font-family: monospace; font-size: 12px; color: #e0e0e0;">Click "Fetch" to make a request...</div>
       `;
-
-      // Minimal JavaScript glue - JS gets URL, Lisp creates promise and updates DOM, JS handles promise chain
-      window.makeHttpRequest = () => {
-        try {
-          // Get URL from input in JavaScript (simpler than Lisp)
-          const urlInput = document.getElementById('http-url');
-          const url = urlInput.value.trim();
-          
-          if (!url) {
-            document.getElementById('http-result').innerHTML = '<span style="color: orange;">Please enter a URL</span>';
-            return;
-          }
-          
-          // Show loading message using Lisp
-          const loadingCode = ctx.read('(element-set-html "http-result" "<span style=\\"color: #666;\\">Loading...</span>")');
-          const loadingRun = ctx.api.wisp_run_init(ctx.heap, loadingCode);
-          ctx.api.wisp_run_eval(ctx.heap, loadingRun, 4_000_000) >>> 0;
-          
-          // First verify *window* is set
-          const checkWindowCode = ctx.read('*window*');
-          const checkWindowRun = ctx.api.wisp_run_init(ctx.heap, checkWindowCode);
-          const windowResult = ctx.api.wisp_run_eval(ctx.heap, checkWindowRun, 4_000_000) >>> 0;
-          
-          if (windowResult === ctx.sys.zap || windowResult === ctx.sys.nil) {
-            document.getElementById('http-result').innerHTML = '<span style="color: red;">Error: *window* is not set. Please refresh the page.</span>';
-            return;
-          }
-          
-          // The root cause: js-call fails and handleError calls SEND-WITH-DEFAULT! with nah
-          // which requires a prompt handler. The issue is that js-call itself is failing.
-          // Let's test js-global-this and js-call step by step to find where it fails
-          
-          // Wrap the fetch call in a try block to catch errors
-          const escapedUrl = url.replace(/"/g, '\\"');
-          const fetchCode = ctx.read(`
-            (try (js-call (js-global-this) "fetch" "${escapedUrl}")
-                 (catch (e k) 
-                   (do
-                     (print (list 'fetch-error e))
-                     nil)))
-          `);
-          const fetchRun = ctx.api.wisp_run_init(ctx.heap, fetchCode);
-          
-          let fetchResult;
-          try {
-            fetchResult = ctx.api.wisp_run_eval(ctx.heap, fetchRun, 4_000_000) >>> 0;
-          } catch (evalError) {
-            console.error('Fetch evaluation threw error:', evalError);
-            document.getElementById('http-result').innerHTML = `<span style="color: red;">Error: Evaluation failed: ${escapeHtml(evalError.message)}<br><small>The Wisp error handler requires prompt handlers. This is a known limitation when calling js-call from the widget demo.</small></span>`;
-            return;
-          }
-          
-          if (fetchResult === ctx.sys.zap) {
-            document.getElementById('http-result').innerHTML = '<span style="color: red;">Error: HTTP request failed (zap returned)<br><small>js-call failed - the error handler requires prompt handlers that aren\'t set up.</small></span>';
-            return;
-          }
-          
-          if (fetchResult === ctx.sys.nil) {
-            document.getElementById('http-result').innerHTML = '<span style="color: red;">Error: HTTP request failed (error handler returned nil)</span>';
-            return;
-          }
-          
-          // Extract the promise from the external object
-          const tags = { ext: 0x1e };
-          const promiseTag = (fetchResult >>> 27) & 0x1f;
-          console.log('Fetch result:', fetchResult, 'tag:', promiseTag.toString(16), 'expected ext:', tags.ext.toString(16));
-          
-          if (promiseTag === tags.ext) {
-            const extIdx = ctx.api.wisp_heap_get_ext_idx(ctx.heap, fetchResult) >>> 0;
-            console.log('External index:', extIdx);
-            const wasd = window.wasd;
-            if (wasd && wasd.ext) {
-              const jsPromise = wasd.ext.get(extIdx);
-              console.log('Got promise from ext:', jsPromise, 'is promise?', jsPromise && typeof jsPromise.then === 'function');
-              if (jsPromise && typeof jsPromise.then === 'function') {
-                // Handle promise in JavaScript - use JavaScript directly for DOM updates for reliability
-                console.log('Setting up promise handlers...');
-                const resultDiv = document.getElementById('http-result');
-                if (!resultDiv) {
-                  console.error('http-result div not found!');
-                  return;
-                }
-                
-                // Show loading state
-                resultDiv.innerHTML = '<span style="color: #e0e0e0;">Loading...</span>';
-                resultDiv.style.color = '#e0e0e0';
-                
-                jsPromise
-                  .then(async (response) => {
-                    console.log('Promise resolved, response:', response);
-                    try {
-                      const text = await response.text();
-                      console.log('Response text length:', text.length, 'first 100 chars:', text.substring(0, 100));
-                      
-                      // Format and display using JavaScript directly
-                      const formatted = `<span style="color: #4CAF50;">✓ Success</span>\n\n<strong>Response:</strong>\n<pre style="color: #e0e0e0;">${escapeHtml(text)}</pre>`;
-                      
-                      console.log('Updating DOM directly with JavaScript...');
-                      resultDiv.innerHTML = formatted;
-                      resultDiv.style.color = '#e0e0e0';
-                      console.log('DOM updated, innerHTML length:', resultDiv.innerHTML.length);
-                    } catch (textError) {
-                      console.error('Error reading response text:', textError);
-                      resultDiv.innerHTML = `<span style="color: red;">Error reading response: ${escapeHtml(textError.message)}</span>`;
-                      resultDiv.style.color = '#e0e0e0';
-                    }
-                  })
-                  .catch((error) => {
-                    console.error('Promise rejected:', error);
-                    const errorMsg = `<span style="color: red;">✗ Error</span>\n\n${escapeHtml(error.message)}`;
-                    resultDiv.innerHTML = errorMsg;
-                    resultDiv.style.color = '#e0e0e0';
-                  });
-              } else {
-                console.error('Result is not a promise:', jsPromise);
-                document.getElementById('http-result').innerHTML = '<span style="color: red;">Error: Result is not a promise</span>';
-              }
-            } else {
-              console.error('wasd or wasd.ext not available');
-              document.getElementById('http-result').innerHTML = '<span style="color: red;">Error: Could not access external object</span>';
-            }
-          } else {
-            console.error('Expected external object, got tag:', promiseTag.toString(16));
-            document.getElementById('http-result').innerHTML = `<span style="color: red;">Error: Expected promise, got tag: 0x${promiseTag.toString(16)}</span>`;
-          }
-        } catch (error) {
-          console.error('HTTP request error:', error);
-          document.getElementById('http-result').innerHTML = `<span style="color: red;">Error: ${escapeHtml(error.message)}</span>`;
-        }
-      };
 
       return widget;
     }
