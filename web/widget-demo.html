@@ -310,27 +310,84 @@
       widget.innerHTML = `
         <h2>💻 Lisp Code Runner</h2>
         <textarea class="code-editor" id="lisp-code" placeholder="Enter Lisp code here...">(+ 1 2 3)</textarea>
+        <p style="font-size: 12px; color: #666; margin: 5px 0;">
+          <strong>Try:</strong> <code>(+ 1 2 3)</code>, <code>(* 2 3)</code>, <code>(list 1 2 3)</code><br>
+          <strong>Note:</strong> Load <code>format.wisp</code> first to use <code>format</code> function!
+        </p>
         <button onclick="runLispCode()">Run</button>
         <div class="result" id="lisp-result">Result will appear here...</div>
       `;
 
+      // Load format.wisp if not already loaded
+      let formatLoaded = false;
+      
       window.runLispCode = async () => {
-        const code = document.getElementById('lisp-code').value;
+        const code = document.getElementById('lisp-code').value.trim();
         const resultDiv = document.getElementById('lisp-result');
+        
+        if (!code) {
+          resultDiv.innerHTML = '<span style="color: orange;">Please enter some code</span>';
+          return;
+        }
+        
+        // Try to load format.wisp if using format
+        if (!formatLoaded && code.includes('format')) {
+          try {
+            resultDiv.innerHTML = '<span style="color: #666;">Loading format.wisp...</span>';
+            const formatCode = await fetch('./format.wisp').then(x => x.text());
+            // Load format.wisp code
+            const formatSrc = ctx.read(`(with-simple-error-handler (fn () (do ${formatCode})))`);
+            const formatRun = ctx.api.wisp_run_init(ctx.heap, formatSrc);
+            const formatResult = ctx.api.wisp_run_eval(ctx.heap, formatRun, 4_000_000) >>> 0;
+            if (formatResult === ctx.sys.zap) {
+              console.error('format.wisp failed to load:', formatResult);
+              resultDiv.innerHTML = '<span style="color: orange;">Warning: format.wisp failed to load. Some functions may not work.</span>';
+            } else {
+              formatLoaded = true;
+              console.log('format.wisp loaded successfully');
+            }
+          } catch (e) {
+            console.warn('Could not load format.wisp:', e);
+            resultDiv.innerHTML = '<span style="color: orange;">Warning: Could not load format.wisp</span>';
+          }
+        }
+        
+        resultDiv.innerHTML = '<span style="color: #666;">Running...</span>';
+        
         try {
+          console.log('Reading code:', code);
           const src = ctx.read(code);
+          console.log('Read result:', src);
+          
           const run = ctx.api.wisp_run_init(ctx.heap, src);
+          console.log('Run initialized:', run);
+          
           const result = ctx.api.wisp_run_eval(ctx.heap, run, 4_000_000) >>> 0;
+          console.log('Evaluation result:', result, 'hex:', '0x' + result.toString(16));
+          console.log('System values:', {
+            nil: ctx.sys.nil,
+            t: ctx.sys.t,
+            zap: ctx.sys.zap
+          });
 
           if (result === ctx.sys.zap) {
-            resultDiv.innerHTML = '<span style="color: red;">Error: Evaluation failed</span>';
+            console.error('Evaluation returned zap (error)');
+            resultDiv.innerHTML = '<span style="color: red;">Error: Evaluation failed (zap).<br><small>The function or syntax may not be available in Wisp. Try simpler code like <code>(+ 1 2)</code> or <code>(* 3 4)</code></small></span>';
             return;
           }
 
-          const resultStr = formatResult(ctx, result);
-          resultDiv.innerHTML = `<strong>Result:</strong> <code>${escapeHtml(resultStr)}</code>`;
+          try {
+            const resultStr = formatResult(ctx, result);
+            console.log('Formatted result:', resultStr);
+            resultDiv.innerHTML = `<strong>Result:</strong> <code>${escapeHtml(resultStr)}</code>`;
+          } catch (formatError) {
+            console.error('Format error:', formatError);
+            resultDiv.innerHTML = `<span style="color: orange;">Result: 0x${result.toString(16)} (format error: ${escapeHtml(formatError.message)})</span>`;
+          }
         } catch (error) {
-          resultDiv.innerHTML = `<span style="color: red;">Error: ${escapeHtml(error.message)}</span>`;
+          console.error('Lisp execution error:', error);
+          console.error('Stack:', error.stack);
+          resultDiv.innerHTML = `<span style="color: red;">Error: ${escapeHtml(error.message)}<br><small>Check console for details</small></span>`;
         }
       };
 
@@ -386,34 +443,91 @@
 
     function formatResult(ctx, value) {
       value = value >>> 0;
+      
+      // Check for special system values first
       if (value === ctx.sys.nil) return "nil";
       if (value === ctx.sys.t) return "t";
       if (value === ctx.sys.zap) return "zap";
       
-      const tags = { v08: 0x1a, v32: 0x19, duo: 0x15 };
-      let tag = (value & ((0b11111 << (32 - 5)) >>> 0)) >>> (32 - 5);
+      // Integers: if bit 31 is 0, it's a 31-bit fixnum
+      if ((value & 0x80000000) === 0) {
+        // Sign extend if needed (31-bit signed integer)
+        if (value & 0x40000000) {
+          return (value | 0x80000000).toString();
+        }
+        return value.toString();
+      }
+      
+      // Tagged pointers: extract tag from top 5 bits (bits 27-31)
+      const tags = { 
+        v08: 0x1a,  // byte vector
+        v32: 0x19,  // word vector
+        duo: 0x15,  // cons pair
+        sym: 0x16,  // symbol
+        fun: 0x17,  // function
+        mac: 0x18,  // macro
+        sys: 0x11,  // system value
+        chr: 0x12,  // character
+        jet: 0x13,  // builtin
+        pin: 0x1f,  // pinned
+      };
+      
+      let tag = (value >>> 27) & 0x1f;
       
       if (tag === tags.v08) {
-        try { return ctx.loadString(value); } catch (e) { return `[string: ${value}]`; }
+        try { 
+          return '"' + ctx.loadString(value) + '"'; 
+        } catch (e) { 
+          return `[string: 0x${value.toString(16)}]`; 
+        }
       } else if (tag === tags.v32) {
         try {
           const vec = ctx.loadVector(value);
           return `[${vec.map(v => formatResult(ctx, v)).join(", ")}]`;
-        } catch (e) { return `[vector: ${value}]`; }
+        } catch (e) { 
+          return `[vector: 0x${value.toString(16)}]`; 
+        }
       } else if (tag === tags.duo) {
         try {
           const head = ctx.api.wisp_heap_get_duo_head(ctx.heap, value) >>> 0;
           const tail = ctx.api.wisp_heap_get_duo_tail(ctx.heap, value) >>> 0;
-          if (tail === ctx.sys.nil) {
-            return `(${formatResult(ctx, head)})`;
-          } else {
-            return `(${formatResult(ctx, head)} . ${formatResult(ctx, tail)})`;
+          
+          // Build list recursively
+          let result = [];
+          let current = value;
+          let depth = 0;
+          
+          while (depth < 100) { // Prevent infinite loops
+            const h = ctx.api.wisp_heap_get_duo_head(ctx.heap, current) >>> 0;
+            const t = ctx.api.wisp_heap_get_duo_tail(ctx.heap, current) >>> 0;
+            result.push(formatResult(ctx, h));
+            
+            if (t === ctx.sys.nil) {
+              return `(${result.join(" ")})`;
+            }
+            
+            // Check if tail is another cons
+            const tailTag = (t >>> 27) & 0x1f;
+            if (tailTag === tags.duo) {
+              current = t;
+              depth++;
+            } else {
+              return `(${result.join(" ")} . ${formatResult(ctx, t)})`;
+            }
           }
-        } catch (e) { return `[cons: ${value}]`; }
-      } else if ((value & ((1 << 31) >>> 0)) === 0) {
-        return value.toString();
+          return `(${result.join(" ")} ...)`;
+        } catch (e) { 
+          return `[cons: 0x${value.toString(16)}]`; 
+        }
+      } else if (tag === tags.sym) {
+        // Symbol - we can't easily get the name without more API functions
+        // Just return a symbol indicator
+        return `[symbol: 0x${value.toString(16)}]`;
+      } else if (tag === tags.fun || tag === tags.mac) {
+        // Function or macro
+        return `[${tag === tags.fun ? 'function' : 'macro'}: 0x${value.toString(16)}]`;
       } else {
-        return `[unknown: 0x${value.toString(16)}]`;
+        return `[tag:0x${tag.toString(16)}: 0x${value.toString(16)}]`;
       }
     }
 
@@ -443,18 +557,31 @@
         const seqDiv = document.getElementById('fib-sequence');
         
         try {
-          // Define fibonacci function in Lisp
-          const fibCode = `
+          // Define fibonacci function in Lisp and call it
+          // We need to evaluate the defun first, then call it
+          const defunCode = `
             (defun fib (n)
               (if (< n 2)
                   n
                 (+ (fib (- n 1)) (fib (- n 2)))))
-            (fib ${n})
           `;
           
-          const src = ctx.read(fibCode);
-          const run = ctx.api.wisp_run_init(ctx.heap, src);
-          const result = ctx.api.wisp_run_eval(ctx.heap, run, 4_000_000) >>> 0;
+          // Evaluate the function definition
+          const defunSrc = ctx.read(defunCode);
+          const defunRun = ctx.api.wisp_run_init(ctx.heap, defunSrc);
+          const defunResult = ctx.api.wisp_run_eval(ctx.heap, defunRun, 4_000_000) >>> 0;
+          
+          if (defunResult === ctx.sys.zap) {
+            resultDiv.innerHTML = '<span style="color: red;">Error: Function definition failed</span>';
+            return;
+          }
+          
+          // Now call the function
+          const callCode = `(fib ${n})`;
+          
+          const callSrc = ctx.read(callCode);
+          const callRun = ctx.api.wisp_run_init(ctx.heap, callSrc);
+          const result = ctx.api.wisp_run_eval(ctx.heap, callRun, 4_000_000) >>> 0;
 
           if (result === ctx.sys.zap) {
             resultDiv.innerHTML = '<span style="color: red;">Error: Calculation failed</span>';
@@ -468,16 +595,11 @@
           let sequence = [];
           for (let i = 0; i <= Math.min(n, 15); i++) {
             try {
-              const seqCode = `
-                (defun fib (n)
-                  (if (< n 2)
-                      n
-                    (+ (fib (- n 1)) (fib (- n 2)))))
-                (fib ${i})
-              `;
-              const seqSrc = ctx.read(seqCode);
-              const seqRun = ctx.api.wisp_run_init(ctx.heap, seqSrc);
-              const seqResult = ctx.api.wisp_run_eval(ctx.heap, seqRun, 4_000_000) >>> 0;
+              // Function is already defined, just call it
+              const seqCallCode = `(fib ${i})`;
+              const seqCallSrc = ctx.read(seqCallCode);
+              const seqCallRun = ctx.api.wisp_run_init(ctx.heap, seqCallSrc);
+              const seqResult = ctx.api.wisp_run_eval(ctx.heap, seqCallRun, 4_000_000) >>> 0;
               if (seqResult !== ctx.sys.zap) {
                 sequence.push(formatResult(ctx, seqResult));
               }
