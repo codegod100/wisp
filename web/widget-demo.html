@@ -1,0 +1,514 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Wisp Lisp - Widget Demo</title>
+  <style>
+    body {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 20px;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      min-height: 100vh;
+    }
+    h1 {
+      color: white;
+      text-align: center;
+      text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+    }
+    .widget-container {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+      gap: 20px;
+      margin: 20px 0;
+    }
+    .widget {
+      background: white;
+      border-radius: 10px;
+      padding: 20px;
+      box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+      transition: transform 0.2s;
+    }
+    .widget:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 6px 12px rgba(0,0,0,0.15);
+    }
+    .widget h2 {
+      margin-top: 0;
+      color: #667eea;
+      border-bottom: 2px solid #667eea;
+      padding-bottom: 10px;
+    }
+    button {
+      background: #667eea;
+      color: white;
+      border: none;
+      padding: 10px 20px;
+      border-radius: 5px;
+      cursor: pointer;
+      font-size: 14px;
+      margin: 5px;
+      transition: background 0.2s;
+    }
+    button:hover {
+      background: #5568d3;
+    }
+    input, textarea {
+      width: 100%;
+      padding: 8px;
+      margin: 5px 0;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      box-sizing: border-box;
+    }
+    .result {
+      background: #f5f5f5;
+      padding: 10px;
+      border-radius: 5px;
+      margin: 10px 0;
+      min-height: 20px;
+      font-family: monospace;
+    }
+    .calculator {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 5px;
+    }
+    .calculator button {
+      padding: 15px;
+      font-size: 18px;
+    }
+    .calculator .display {
+      grid-column: 1 / -1;
+      background: #2a2a2a;
+      color: #4CAF50;
+      padding: 15px;
+      text-align: right;
+      font-size: 24px;
+      font-family: monospace;
+      border-radius: 5px;
+      margin-bottom: 10px;
+    }
+    .todo-item {
+      display: flex;
+      align-items: center;
+      padding: 8px;
+      margin: 5px 0;
+      background: #f9f9f9;
+      border-radius: 4px;
+    }
+    .todo-item input[type="checkbox"] {
+      width: auto;
+      margin-right: 10px;
+    }
+    .todo-item.completed {
+      opacity: 0.6;
+      text-decoration: line-through;
+    }
+    .code-editor {
+      font-family: 'Courier New', monospace;
+      background: #2a2a2a;
+      color: #4CAF50;
+      border: none;
+      padding: 10px;
+      border-radius: 5px;
+      min-height: 100px;
+    }
+  </style>
+</head>
+<body>
+  <h1>🎨 Wisp Lisp Widgets</h1>
+  <p style="color: white; text-align: center; margin-bottom: 30px;">
+    Interactive widgets built with Lisp running in WebAssembly
+  </p>
+
+  <div class="widget-container" id="widgets"></div>
+
+  <script type="module">
+    import { Wisp, WASD } from "./wisp.js";
+    import WASI from "./wasi.js";
+    import idom from "./lib/idom.js";
+
+    let wispContext = null;
+    let wasd = null;
+
+    async function initWisp() {
+      if (wispContext) return wispContext;
+
+      const wasi = new WASI();
+      wasd = new WASD();
+      
+      const wasmModule = await WebAssembly.compileStreaming(fetch("wisp.wasm"));
+      const instance = await WebAssembly.instantiate(wasmModule, {
+        wasi_snapshot_preview1: wasi.exports(),
+        dom: wasd.exports()
+      });
+
+      wasi.setMemory(instance.exports.memory);
+      wispContext = new Wisp(instance);
+      wasd.setWisp(wispContext);
+      
+      return wispContext;
+    }
+
+    function exec(ctx, code) {
+      const src = ctx.read(`(with-simple-error-handler (fn () (do ${code})))`);
+      const run = ctx.api.wisp_run_init(ctx.heap, src);
+      const result = ctx.api.wisp_run_eval(ctx.heap, run, 4_000_000) >>> 0;
+      if (result === ctx.sys.zap) throw new Error("Evaluation failed");
+      return result;
+    }
+
+    // Calculator Widget
+    function createCalculator() {
+      const widget = document.createElement('div');
+      widget.className = 'widget';
+      widget.innerHTML = `
+        <h2>🧮 Calculator</h2>
+        <div class="calculator">
+          <div class="display" id="calc-display">0</div>
+          <button onclick="calcClear()">C</button>
+          <button onclick="calcOp('/')">/</button>
+          <button onclick="calcOp('*')">×</button>
+          <button onclick="calcOp('-')">-</button>
+          <button onclick="calcNum('7')">7</button>
+          <button onclick="calcNum('8')">8</button>
+          <button onclick="calcNum('9')">9</button>
+          <button onclick="calcOp('+')">+</button>
+          <button onclick="calcNum('4')">4</button>
+          <button onclick="calcNum('5')">5</button>
+          <button onclick="calcNum('6')">6</button>
+          <button onclick="calcEquals()" rowspan="2">=</button>
+          <button onclick="calcNum('1')">1</button>
+          <button onclick="calcNum('2')">2</button>
+          <button onclick="calcNum('3')">3</button>
+          <button onclick="calcNum('0')" colspan="2">0</button>
+          <button onclick="calcNum('.')">.</button>
+        </div>
+      `;
+      
+      let display = '';
+      let currentValue = 0;
+      let operation = null;
+      let waitingForOperand = false;
+
+      window.calcNum = (num) => {
+        if (waitingForOperand) {
+          display = num;
+          waitingForOperand = false;
+        } else {
+          display = display === '0' ? num : display + num;
+        }
+        document.getElementById('calc-display').textContent = display;
+      };
+
+      window.calcOp = (op) => {
+        const inputValue = parseFloat(display);
+        if (currentValue === 0) {
+          currentValue = inputValue;
+        } else {
+          const result = calculate(currentValue, inputValue, operation);
+          display = String(result);
+          currentValue = result;
+          document.getElementById('calc-display').textContent = display;
+        }
+        waitingForOperand = true;
+        operation = op;
+      };
+
+      window.calcEquals = () => {
+        const inputValue = parseFloat(display);
+        if (operation) {
+          const result = calculate(currentValue, inputValue, operation);
+          display = String(result);
+          currentValue = 0;
+          operation = null;
+          waitingForOperand = true;
+          document.getElementById('calc-display').textContent = display;
+        }
+      };
+
+      window.calcClear = () => {
+        display = '0';
+        currentValue = 0;
+        operation = null;
+        waitingForOperand = false;
+        document.getElementById('calc-display').textContent = display;
+      };
+
+      function calculate(first, second, op) {
+        switch(op) {
+          case '+': return first + second;
+          case '-': return first - second;
+          case '*': return first * second;
+          case '/': return first / second;
+          default: return second;
+        }
+      }
+
+      return widget;
+    }
+
+    // Todo List Widget
+    function createTodoList() {
+      const widget = document.createElement('div');
+      widget.className = 'widget';
+      widget.innerHTML = `
+        <h2>✅ Todo List</h2>
+        <input type="text" id="todo-input" placeholder="Add a task...">
+        <button onclick="addTodo()">Add</button>
+        <div id="todo-list"></div>
+      `;
+
+      let todos = [];
+      let todoId = 0;
+
+      window.addTodo = () => {
+        const input = document.getElementById('todo-input');
+        const text = input.value.trim();
+        if (text) {
+          todos.push({ id: todoId++, text, completed: false });
+          input.value = '';
+          renderTodos();
+        }
+      };
+
+      window.toggleTodo = (id) => {
+        const todo = todos.find(t => t.id === id);
+        if (todo) {
+          todo.completed = !todo.completed;
+          renderTodos();
+        }
+      };
+
+      window.deleteTodo = (id) => {
+        todos = todos.filter(t => t.id !== id);
+        renderTodos();
+      };
+
+      function renderTodos() {
+        const list = document.getElementById('todo-list');
+        list.innerHTML = todos.map(todo => `
+          <div class="todo-item ${todo.completed ? 'completed' : ''}">
+            <input type="checkbox" ${todo.completed ? 'checked' : ''} 
+                   onchange="toggleTodo(${todo.id})">
+            <span style="flex: 1">${todo.text}</span>
+            <button onclick="deleteTodo(${todo.id})" style="background: #f44336; padding: 5px 10px;">×</button>
+          </div>
+        `).join('');
+      }
+
+      return widget;
+    }
+
+    // Lisp Code Runner Widget
+    async function createLispRunner() {
+      const ctx = await initWisp();
+      const widget = document.createElement('div');
+      widget.className = 'widget';
+      widget.innerHTML = `
+        <h2>💻 Lisp Code Runner</h2>
+        <textarea class="code-editor" id="lisp-code" placeholder="Enter Lisp code here...">(+ 1 2 3)</textarea>
+        <button onclick="runLispCode()">Run</button>
+        <div class="result" id="lisp-result">Result will appear here...</div>
+      `;
+
+      window.runLispCode = async () => {
+        const code = document.getElementById('lisp-code').value;
+        const resultDiv = document.getElementById('lisp-result');
+        try {
+          const src = ctx.read(code);
+          const run = ctx.api.wisp_run_init(ctx.heap, src);
+          const result = ctx.api.wisp_run_eval(ctx.heap, run, 4_000_000) >>> 0;
+
+          if (result === ctx.sys.zap) {
+            resultDiv.innerHTML = '<span style="color: red;">Error: Evaluation failed</span>';
+            return;
+          }
+
+          const resultStr = formatResult(ctx, result);
+          resultDiv.innerHTML = `<strong>Result:</strong> <code>${escapeHtml(resultStr)}</code>`;
+        } catch (error) {
+          resultDiv.innerHTML = `<span style="color: red;">Error: ${escapeHtml(error.message)}</span>`;
+        }
+      };
+
+      return widget;
+    }
+
+    // Counter Widget (Lisp-powered)
+    async function createLispCounter() {
+      const ctx = await initWisp();
+      const widget = document.createElement('div');
+      widget.className = 'widget';
+      widget.innerHTML = `
+        <h2>🔢 Lisp Counter</h2>
+        <div class="result" id="counter-display" style="font-size: 48px; text-align: center; padding: 20px;">0</div>
+        <button onclick="counterIncrement()">+1</button>
+        <button onclick="counterDecrement()">-1</button>
+        <button onclick="counterReset()">Reset</button>
+      `;
+
+      let count = 0;
+
+      window.counterIncrement = () => {
+        try {
+          // Use Lisp to increment
+          const result = exec(ctx, `(+ ${count} 1)`);
+          count = parseInt(formatResult(ctx, result)) || count + 1;
+          document.getElementById('counter-display').textContent = count;
+        } catch (e) {
+          count++;
+          document.getElementById('counter-display').textContent = count;
+        }
+      };
+
+      window.counterDecrement = () => {
+        try {
+          // Use Lisp to decrement
+          const result = exec(ctx, `(- ${count} 1)`);
+          count = parseInt(formatResult(ctx, result)) || count - 1;
+          document.getElementById('counter-display').textContent = count;
+        } catch (e) {
+          count--;
+          document.getElementById('counter-display').textContent = count;
+        }
+      };
+
+      window.counterReset = () => {
+        count = 0;
+        document.getElementById('counter-display').textContent = count;
+      };
+
+      return widget;
+    }
+
+    function formatResult(ctx, value) {
+      value = value >>> 0;
+      if (value === ctx.sys.nil) return "nil";
+      if (value === ctx.sys.t) return "t";
+      if (value === ctx.sys.zap) return "zap";
+      
+      const tags = { v08: 0x1a, v32: 0x19, duo: 0x15 };
+      let tag = (value & ((0b11111 << (32 - 5)) >>> 0)) >>> (32 - 5);
+      
+      if (tag === tags.v08) {
+        try { return ctx.loadString(value); } catch (e) { return `[string: ${value}]`; }
+      } else if (tag === tags.v32) {
+        try {
+          const vec = ctx.loadVector(value);
+          return `[${vec.map(v => formatResult(ctx, v)).join(", ")}]`;
+        } catch (e) { return `[vector: ${value}]`; }
+      } else if (tag === tags.duo) {
+        try {
+          const head = ctx.api.wisp_heap_get_duo_head(ctx.heap, value) >>> 0;
+          const tail = ctx.api.wisp_heap_get_duo_tail(ctx.heap, value) >>> 0;
+          if (tail === ctx.sys.nil) {
+            return `(${formatResult(ctx, head)})`;
+          } else {
+            return `(${formatResult(ctx, head)} . ${formatResult(ctx, tail)})`;
+          }
+        } catch (e) { return `[cons: ${value}]`; }
+      } else if ((value & ((1 << 31) >>> 0)) === 0) {
+        return value.toString();
+      } else {
+        return `[unknown: 0x${value.toString(16)}]`;
+      }
+    }
+
+    function escapeHtml(text) {
+      const div = document.createElement('div');
+      div.textContent = text;
+      return div.innerHTML;
+    }
+
+    // Fibonacci Widget (pure Lisp)
+    async function createFibonacciWidget() {
+      const ctx = await initWisp();
+      const widget = document.createElement('div');
+      widget.className = 'widget';
+      widget.innerHTML = `
+        <h2>🔢 Fibonacci Generator</h2>
+        <p>Calculate Fibonacci numbers using Lisp recursion</p>
+        <input type="number" id="fib-input" value="10" min="0" max="30" style="width: 100px;">
+        <button onclick="calculateFib()">Calculate</button>
+        <div class="result" id="fib-result">Enter a number and click Calculate</div>
+        <div class="result" id="fib-sequence" style="max-height: 200px; overflow-y: auto;"></div>
+      `;
+
+      window.calculateFib = async () => {
+        const n = parseInt(document.getElementById('fib-input').value) || 0;
+        const resultDiv = document.getElementById('fib-result');
+        const seqDiv = document.getElementById('fib-sequence');
+        
+        try {
+          // Define fibonacci function in Lisp
+          const fibCode = `
+            (defun fib (n)
+              (if (< n 2)
+                  n
+                (+ (fib (- n 1)) (fib (- n 2)))))
+            (fib ${n})
+          `;
+          
+          const src = ctx.read(fibCode);
+          const run = ctx.api.wisp_run_init(ctx.heap, src);
+          const result = ctx.api.wisp_run_eval(ctx.heap, run, 4_000_000) >>> 0;
+
+          if (result === ctx.sys.zap) {
+            resultDiv.innerHTML = '<span style="color: red;">Error: Calculation failed</span>';
+            return;
+          }
+
+          const fibValue = formatResult(ctx, result);
+          resultDiv.innerHTML = `<strong>Fibonacci(${n}) = ${fibValue}</strong>`;
+          
+          // Generate sequence
+          let sequence = [];
+          for (let i = 0; i <= Math.min(n, 15); i++) {
+            try {
+              const seqCode = `
+                (defun fib (n)
+                  (if (< n 2)
+                      n
+                    (+ (fib (- n 1)) (fib (- n 2)))))
+                (fib ${i})
+              `;
+              const seqSrc = ctx.read(seqCode);
+              const seqRun = ctx.api.wisp_run_init(ctx.heap, seqSrc);
+              const seqResult = ctx.api.wisp_run_eval(ctx.heap, seqRun, 4_000_000) >>> 0;
+              if (seqResult !== ctx.sys.zap) {
+                sequence.push(formatResult(ctx, seqResult));
+              }
+            } catch (e) {
+              break;
+            }
+          }
+          
+          seqDiv.innerHTML = `<strong>Sequence:</strong> ${sequence.join(', ')}`;
+        } catch (error) {
+          resultDiv.innerHTML = `<span style="color: red;">Error: ${escapeHtml(error.message)}</span>`;
+        }
+      };
+
+      return widget;
+    }
+
+    // Initialize and create widgets
+    async function init() {
+      await initWisp();
+      
+      const container = document.getElementById('widgets');
+      container.appendChild(createCalculator());
+      container.appendChild(createTodoList());
+      container.appendChild(await createLispRunner());
+      container.appendChild(await createLispCounter());
+      container.appendChild(await createFibonacciWidget());
+    }
+
+    init();
+  </script>
+</body>
+</html>
+
