@@ -128,13 +128,28 @@
      (set-struct-def ',name ',slots)
      
      ;; Create constructor function - hardcode make-FOO for now
+     ;; Tag struct instances with the struct name as the first element
      (set-symbol-function!
       (quote make-FOO)
       (fn (&rest kv-pairs)
-        ;; Build association list - hardcode :A and :B for now
-        (cons (cons (quote :A) (head kv-pairs))
-              (cons (cons (quote :B) (head (tail kv-pairs)))
-                    nil))))
+        ;; Build association list with struct name tag - hardcode :A and :B for now
+        ;; Format: (FOO (:A . 32) (:B . 15))
+        (let ((struct-instance
+               (cons (quote ,name)
+                     (cons (cons (quote :A) (head kv-pairs))
+                           (cons (cons (quote :B) (head (tail kv-pairs)))
+                                 nil)))))
+          struct-instance)))
+     
+     ;; Create predicate function to check if value is this struct type
+     (set-symbol-function!
+      (quote FOO?)
+      (fn (x)
+        ;; Check if it's a list starting with the struct name
+        ;; The struct format is (FOO (:A . 32) (:B . 15))
+        (if (pair? x)
+            (eq? (head x) (quote ,name))
+          nil)))
      
      ;; Return the struct name
      ',name))
