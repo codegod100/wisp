@@ -39,10 +39,6 @@
         ;; Keep this entry, continue
         (cons entry (set-struct-def-helper name slots (tail alist)))))))
 
-;; Helper: get symbol name as string (wrapper for SYMBOL-NAME jet)
-(defun symbol-name (sym)
-  (SYMBOL-NAME sym))
-
 ;; Helper: read from string (wrapper for READ-FROM-STRING jet)
 ;; Note: READ-FROM-STRING takes a string (v08) and returns a value
 (defun read-from-string (str)
