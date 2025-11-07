@@ -461,6 +461,20 @@
           }
         }
         
+        // Try to load structs.wisp if using defstruct
+        if (!window.structsLoaded && code.includes('defstruct')) {
+          try {
+            resultDiv.innerHTML = '<span style="color: #666;">Loading structs.wisp...</span>';
+            window.structsLoaded = await loadWispFile('structs.wisp');
+            if (!window.structsLoaded) {
+              resultDiv.innerHTML = '<span style="color: orange;">Warning: structs.wisp failed to load. defstruct may not work.</span>';
+            }
+          } catch (e) {
+            console.warn('Could not load structs.wisp:', e);
+            resultDiv.innerHTML = '<span style="color: orange;">Warning: Could not load structs.wisp</span>';
+          }
+        }
+        
         resultDiv.innerHTML = '<span style="color: #666;">Running...</span>';
         
         try {
