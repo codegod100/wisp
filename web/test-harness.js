@@ -4,6 +4,55 @@
 
 export const tests = [
   {
+    name: "check helper functions exist",
+    code: `
+      (list
+        (symbol-function (quote set-struct-def))
+        (symbol-function (quote build-constructor-name))
+        (symbol-function (quote build-predicate-name))
+        (symbol-function (quote create-all-accessors))
+      )
+    `,
+    expected: null, // Just check they exist
+    description: "Verify all helper functions are defined"
+  },
+  {
+    name: "manual set-struct-def",
+    code: "(set-struct-def (quote foo) (quote (a b)))",
+    expected: null,
+    description: "Test set-struct-def directly"
+  },
+  {
+    name: "test quote returns symbol",
+    code: "(quote foo)",
+    expected: null, // Should return the symbol FOO
+    description: "Test that quote returns a symbol"
+  },
+  {
+    name: "test SYMBOL-NAME",
+    code: "(SYMBOL-NAME (quote foo))",
+    expected: null,
+    description: "Test SYMBOL-NAME jet"
+  },
+  {
+    name: "test STRING-APPEND",
+    code: '(STRING-APPEND "make-" "foo")',
+    expected: '"make-foo"',
+    description: "Test STRING-APPEND jet"
+  },
+  {
+    name: "test SYMBOL-NAME then STRING-APPEND",
+    code: '(let ((name-str (SYMBOL-NAME (quote foo)))) (STRING-APPEND "make-" name-str))',
+    expected: '"make-FOO"',
+    description: "Test SYMBOL-NAME + STRING-APPEND"
+  },
+  {
+    name: "manual build-constructor-name",
+    code: "(build-constructor-name (quote foo))",
+    expected: null, // Should return a symbol
+    description: "Test build-constructor-name directly"
+  },
+  {
     name: "defstruct basic",
     code: "(defstruct foo a b)",
     expected: "FOO", // defstruct should return the struct name
@@ -177,14 +226,22 @@ export async function runTests(ctx, options = {}) {
 }
 
 function formatValue(ctx, value) {
-  value = value >>> 0;
+  // Convert to unsigned for comparison
+  const uvalue = value >>> 0;
+  const uzap = (ctx.sys.zap >>> 0);
+  const unil = (ctx.sys.nil >>> 0);
+  const ut = (ctx.sys.t >>> 0);
+  const unah = (ctx.sys.nah >>> 0);
+  const utop = (ctx.sys.top >>> 0);
   
-  // Check for special system values
-  if (value === ctx.sys.nil) return "nil";
-  if (value === ctx.sys.t) return "t";
-  if (value === ctx.sys.zap) return "zap";
-  if (value === ctx.sys.nah) return "nah";
-  if (value === ctx.sys.top) return "top";
+  // Check for special system values first (before tag check)
+  if (uvalue === uzap) return "zap";
+  if (uvalue === unil) return "nil";
+  if (uvalue === ut) return "t";
+  if (uvalue === unah) return "nah";
+  if (uvalue === utop) return "top";
+  
+  value = uvalue;
   
   // Integers
   if ((value & 0x80000000) === 0) {

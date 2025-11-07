@@ -2,28 +2,52 @@
 // Test runner for Node.js - can be run from command line
 // Usage: node test-runner-node.js [test-name]
 
-import { Wisp } from './wisp.js';
+import { Wisp, WASD } from './wisp.js';
+import WASI from './wasi.js';
 import { runTests } from './test-harness.js';
 import fs from 'fs';
 
 async function initWisp() {
-  // Load WASM module
-  const wasmPath = './wisp.wasm';
-  const wasmBytes = fs.readFileSync(wasmPath);
+  // Load WASM module - try multiple possible locations
+  const possiblePaths = [
+    './wisp.wasm',
+    './dist/wisp.wasm',
+    '../core/zig-out/bin/wisp.wasm'
+  ];
+  
+  let wasmBytes = null;
+  let wasmPath = null;
+  for (const path of possiblePaths) {
+    try {
+      wasmBytes = fs.readFileSync(path);
+      wasmPath = path;
+      break;
+    } catch (e) {
+      // Try next path
+    }
+  }
+  
+  if (!wasmBytes) {
+    throw new Error(`Could not find wisp.wasm in any of: ${possiblePaths.join(', ')}`);
+  }
+  
+  console.log(`Loading WASM from: ${wasmPath}`);
   const wasmModule = await WebAssembly.compile(wasmBytes);
   
-  // Create instance with minimal imports
+  // Set up WASI and DOM interfaces
+  const wasi = new WASI();
+  const wasd = new WASD();
+  
+  // Create instance with required imports
   const instance = await WebAssembly.instantiate(wasmModule, {
-    wasi_snapshot_preview1: {
-      proc_exit: () => {},
-      fd_close: () => 0,
-      fd_seek: () => 0,
-      fd_write: () => 0,
-      fd_read: () => 0,
-    }
+    wasi_snapshot_preview1: wasi.exports(),
+    dom: wasd.exports()
   });
   
+  wasi.setMemory(instance.exports.memory);
   const ctx = new Wisp(instance);
+  wasd.setWisp(ctx);
+  
   return ctx;
 }
 
@@ -64,9 +88,29 @@ async function main() {
   console.log('Initializing Wisp...');
   const ctx = await initWisp();
   
-  // Load required files
+  // Load required files - try multiple possible locations
   console.log('Loading base files...');
-  await loadWispFile(ctx, 'structs.wisp');
+  const wispFiles = [
+    'structs.wisp',
+    './structs.wisp',
+    './dist/structs.wisp'
+  ];
+  
+  let loaded = false;
+  for (const file of wispFiles) {
+    try {
+      if (await loadWispFile(ctx, file)) {
+        loaded = true;
+        break;
+      }
+    } catch (e) {
+      // Try next path
+    }
+  }
+  
+  if (!loaded) {
+    console.warn('Warning: Could not load structs.wisp, tests may fail');
+  }
   
   // Get test name from command line if provided
   const testName = process.argv[2];

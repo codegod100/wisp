@@ -1,10 +1,38 @@
 #!/bin/sh
-set -ex
+set -e
+
+# Build lib files (incremental via esbuild)
 node ./build.mjs
+
+# Create dist directory
 mkdir -p dist
+
+# Copy WASM (always copy - it's the main artifact)
 cp ../core/zig-out/bin/wisp.wasm dist/
-cp *.html index.js index.css dist/ 2>/dev/null || true
-cp wisp.js wasi.js dist/
-cp -r lib dist/ 2>/dev/null || true
-cp *.wisp dist/ 2>/dev/null || true
-cp test-harness.js dist/ 2>/dev/null || true
+
+# Copy core JS files (always copy - they're small)
+cp wisp.js wasi.js dist/ 2>/dev/null || true
+
+# Copy HTML/CSS/JS only if they exist and are newer (incremental)
+for file in *.html index.js index.css; do
+  if [ -f "$file" ] && [ "$file" -nt "dist/$file" ] 2>/dev/null; then
+    cp "$file" dist/
+  fi
+done 2>/dev/null || true
+
+# Copy lib directory (only if it changed - esbuild handles this)
+if [ -d lib ] && [ ! -d dist/lib ] || [ lib -nt dist/lib ] 2>/dev/null; then
+  cp -r lib dist/ 2>/dev/null || true
+fi
+
+# Copy .wisp files only if they changed (incremental)
+for file in *.wisp; do
+  if [ -f "$file" ] && ([ ! -f "dist/$file" ] || [ "$file" -nt "dist/$file" ]); then
+    cp "$file" dist/
+  fi
+done 2>/dev/null || true
+
+# Copy test harness if it exists and is newer
+if [ -f test-harness.js ] && ([ ! -f dist/test-harness.js ] || [ test-harness.js -nt dist/test-harness.js ]); then
+  cp test-harness.js dist/
+fi

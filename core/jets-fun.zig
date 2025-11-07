@@ -901,15 +901,17 @@ pub fn @"SYMBOL-PACKAGE"(step: *Step, sym: u32) anyerror!void {
 }
 
 pub fn @"SYMBOL-NAME"(step: *Step, sym: u32) anyerror!void {
-    step.give(
-        .val,
-        if (sym == nil)
-            step.heap.commonStrings.NIL
-        else if (sym == t)
-            step.heap.commonStrings.T
-        else
-            try step.heap.get(.sym, .str, sym),
-    );
+    if (sym == nil) {
+        step.give(.val, step.heap.commonStrings.NIL);
+    } else if (sym == t) {
+        step.give(.val, step.heap.commonStrings.T);
+    } else if (Wisp.tagOf(sym) != .sym) {
+        return step.failTypeMismatch(sym, step.heap.kwd.SYMBOL);
+    } else {
+        // Get the string field - use try so errors propagate properly
+        // The error will be caught by handleError and converted to a condition
+        step.give(.val, try step.heap.get(.sym, .str, sym));
+    }
 }
 
 pub fn DEBUGGER(step: *Step) anyerror!void {

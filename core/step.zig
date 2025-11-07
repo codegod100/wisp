@@ -80,10 +80,20 @@ fn makeCondition(step: *Step, err: anyerror) !u32 {
 
 pub fn handleError(step: *Step, err: anyerror) !void {
     const condition = try step.makeCondition(err);
-    step.run.err = nil;
+    // Always preserve the error condition in step.run.err
+    // SEND-WITH-DEFAULT! will use the condition, but if there's no handler,
+    // it will just give the default value (nil) and the condition could be lost.
+    // We preserve it in step.run.err so it can be retrieved later for debugging.
+    step.run.err = condition;
     // Use nil as default instead of nah - this allows errors to be handled gracefully
     // when no prompt handler is set up, instead of causing "unreachable" errors
     try Jets.Funs.@"SEND-WITH-DEFAULT!"(step, step.heap.kwd.ERROR, condition, Wisp.nil);
+    // Ensure the error condition is still preserved after SEND-WITH-DEFAULT!
+    // (step.give doesn't clear step.run.err, so it should still be there, but
+    //  we make sure just in case)
+    if (step.run.err == nil) {
+        step.run.err = condition;
+    }
 }
 
 pub fn attemptOneStep(step: *Step) !void {
