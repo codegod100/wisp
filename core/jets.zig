@@ -140,6 +140,17 @@ test "ops" {
     try expectEqual(jets[0].txt, "QUOTE");
 }
 
+test "SYMBOL-NAME in jets" {
+    var found = false;
+    for (jets) |jet| {
+        if (std.mem.eql(u8, jet.txt, "SYMBOL-NAME")) {
+            found = true;
+            break;
+        }
+    }
+    try expectEqual(found, true);
+}
+
 pub fn load(heap: *Wisp.Heap) !void {
     inline for (jets, 0..) |jet, i| {
         const sym = try heap.intern(jet.txt, heap.base);

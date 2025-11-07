@@ -908,8 +908,6 @@ pub fn @"SYMBOL-NAME"(step: *Step, sym: u32) anyerror!void {
     } else if (Wisp.tagOf(sym) != .sym) {
         return step.failTypeMismatch(sym, step.heap.kwd.SYMBOL);
     } else {
-        // Get the string field - use try so errors propagate properly
-        // The error will be caught by handleError and converted to a condition
         step.give(.val, try step.heap.get(.sym, .str, sym));
     }
 }

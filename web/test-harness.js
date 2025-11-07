@@ -29,16 +29,28 @@ export const tests = [
     description: "Test that quote returns a symbol"
   },
   {
-    name: "test SYMBOL-NAME",
-    code: "(symbol-name (quote foo))",
-    expected: null,
-    description: "Test SYMBOL-NAME jet via wrapper"
-  },
-  {
     name: "test STRING-APPEND",
     code: '(STRING-APPEND "make-" "foo")',
     expected: '"make-foo"',
     description: "Test STRING-APPEND jet"
+  },
+  {
+    name: "test SYMBOL-PACKAGE",
+    code: "(SYMBOL-PACKAGE (quote foo))",
+    expected: null,
+    description: "Test SYMBOL-PACKAGE jet (similar to SYMBOL-NAME)"
+  },
+  {
+    name: "test SYMBOL-NAME function exists",
+    code: "(symbol-function (quote SYMBOL-NAME))",
+    expected: null,
+    description: "Test if SYMBOL-NAME jet is registered"
+  },
+  {
+    name: "test SYMBOL-NAME",
+    code: "(SYMBOL-NAME (quote foo))",
+    expected: null,
+    description: "Test SYMBOL-NAME jet directly"
   },
   {
     name: "test SYMBOL-NAME then STRING-APPEND",
@@ -49,13 +61,13 @@ export const tests = [
   {
     name: "manual build-constructor-name",
     code: "(build-constructor-name (quote foo))",
-    expected: null, // Should return a symbol
+    expected: null,
     description: "Test build-constructor-name directly"
   },
   {
     name: "defstruct basic",
     code: "(defstruct foo a b)",
-    expected: "FOO", // defstruct should return the struct name
+    expected: "FOO",
     description: "Test basic defstruct definition"
   },
   {
@@ -64,7 +76,7 @@ export const tests = [
       (defstruct foo a b)
       (make-foo :a 32 :b 15)
     `,
-    expected: null, // We'll check the structure
+    expected: null,
     description: "Test defstruct and creating an instance"
   },
   {
