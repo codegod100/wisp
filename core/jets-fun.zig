@@ -939,6 +939,9 @@ pub fn @"STRING-APPEND"(step: *Step, rest: []u32) anyerror!void {
     defer result.deinit(step.heap.orb);
 
     for (rest) |x| {
+        if (tagOf(x) != .v08) {
+            return step.failTypeMismatch(x, step.heap.kwd.STRING);
+        }
         const piece = try step.heap.v08slice(x);
         try result.appendSlice(step.heap.orb, piece);
     }

@@ -311,7 +311,10 @@
       widget.innerHTML = `
         <h2>💻 Lisp Code Runner</h2>
         <textarea class="code-editor" id="lisp-code" placeholder="Enter Lisp code here..."></textarea>
-        <button onclick="runLispCode()" style="margin-top: 10px;">Run</button>
+        <div style="margin-top: 10px;">
+          <button onclick="runLispCode()">Run</button>
+          <button onclick="runTests()" style="margin-left: 10px; background: #4CAF50; color: white;">Run Tests</button>
+        </div>
         <div class="result" id="lisp-result" style="margin-top: 10px;">Result will appear here...</div>
       `;
 
@@ -360,6 +363,46 @@
           return false;
         }
       }
+      
+      // Test harness integration
+      window.runTests = async () => {
+        try {
+          // Dynamically import test harness
+          const { runTests } = await import('./test-harness.js');
+          const resultDiv = document.getElementById('lisp-result');
+          resultDiv.innerHTML = '<span style="color: #666;">Running tests...</span>';
+          
+          const summary = await runTests(ctx, {
+            verbose: true,
+            stopOnError: false,
+            onTestStart: (test) => {
+              console.log(`\n=== ${test.name} ===`);
+            },
+            onTestComplete: (result) => {
+              if (result.passed) {
+                console.log(`✓ ${result.name}`);
+              } else {
+                console.error(`✗ ${result.name}: ${result.error}`);
+              }
+            }
+          });
+          
+          // Display summary
+          const passedColor = summary.failed === 0 ? 'green' : 'orange';
+          resultDiv.innerHTML = `
+            <div style="color: ${passedColor};">
+              <strong>Test Results:</strong><br>
+              Total: ${summary.total}<br>
+              Passed: ${summary.passed}<br>
+              Failed: ${summary.failed}
+            </div>
+          `;
+        } catch (e) {
+          console.error('Test harness error:', e);
+          document.getElementById('lisp-result').innerHTML = 
+            `<span style="color: red;">Test harness error: ${e.message}</span>`;
+        }
+      };
       
       window.runLispCode = async () => {
         const code = document.getElementById('lisp-code').value.trim();
@@ -543,7 +586,92 @@
               formCount++;
               console.log(`Evaluating form ${formCount}:`, form);
               
+              // Try to format the form before evaluating
+              try {
+                const formStr = formatResult(ctx, form);
+                console.log(`Form ${formCount} (formatted):`, formStr);
+                
+                // If it's a function call (duo starting with symbol), try to get the function name
+                const formTag = (form >>> 27) & 0x1f;
+                if (formTag === tags.duo) {
+                  try {
+                    const head = ctx.api.wisp_heap_get_duo_head(ctx.heap, form) >>> 0;
+                    const headTag = (head >>> 27) & 0x1f;
+                    if (headTag === tags.sym) {
+                      // Try to get symbol name by calling SYMBOL-NAME via eval
+                      try {
+                        // We can't directly pass the symbol pointer, but we can try to
+                        // use a workaround: create code that references it
+                        // Actually, let's try to get all symbol names in the form
+                        console.log(`Form ${formCount} function symbol: 0x${head.toString(16)}`);
+                        
+                        // Try to get the symbol name by evaluating (SYMBOL-NAME <symbol>)
+                        // But we need the symbol as a value, not a pointer
+                        // Let's try a different approach: use the column loading to get the string
+                        // For now, just log the hex - we'll improve this
+                      } catch (e) {
+                        console.log(`Could not get function name:`, e);
+                      }
+                    }
+                  } catch (e) {
+                    // Ignore
+                  }
+                }
+              } catch (e) {
+                console.log(`Form ${formCount} (could not format):`, e);
+              }
+              
               const run = ctx.api.wisp_run_init(ctx.heap, form);
+              
+              // Before evaluating, check if DEFSTRUCT and helper functions are defined (for debugging)
+              if (formCount === 1) {
+                try {
+                  const checkDefstructCode = ctx.read('(symbol-function (quote defstruct))');
+                  const checkRun = ctx.api.wisp_run_init(ctx.heap, checkDefstructCode);
+                  const checkResult = ctx.api.wisp_run_eval(ctx.heap, checkRun, 10000) >>> 0;
+                  if (checkResult === ctx.sys.nil) {
+                    console.warn('DEFSTRUCT is not defined!');
+                  } else {
+                    const checkResultStr = formatResult(ctx, checkResult);
+                    console.log('DEFSTRUCT function:', checkResultStr);
+                  }
+                  
+                  // Check if helper functions are defined
+                  const helpers = ['set-struct-def', 'build-constructor-name', 'build-predicate-name', 'create-all-accessors'];
+                  for (const helper of helpers) {
+                    try {
+                      const helperCode = ctx.read(`(symbol-function (quote ${helper}))`);
+                      const helperRun = ctx.api.wisp_run_init(ctx.heap, helperCode);
+                      const helperResult = ctx.api.wisp_run_eval(ctx.heap, helperRun, 10000) >>> 0;
+                      if (helperResult === ctx.sys.nil) {
+                        console.warn(`${helper} is not defined!`);
+                      } else {
+                        console.log(`${helper} is defined`);
+                      }
+                    } catch (e) {
+                      console.warn(`Could not check ${helper}:`, e);
+                    }
+                  }
+                  
+                  // Try to macroexpand to see what the macro expands to
+                  try {
+                    const expandCode = ctx.read('(macroexpand (quote (defstruct foo a b)))');
+                    const expandRun = ctx.api.wisp_run_init(ctx.heap, expandCode);
+                    const expandResult = ctx.api.wisp_run_eval(ctx.heap, expandRun, 10000) >>> 0;
+                    if (expandResult !== ctx.sys.zap) {
+                      const expandStr = formatResult(ctx, expandResult);
+                      console.log('Macro expansion:', expandStr);
+                    } else {
+                      console.warn('Macro expansion failed');
+                    }
+                  } catch (e) {
+                    console.warn('Could not macroexpand:', e);
+                  }
+                } catch (e) {
+                  console.warn('Could not check DEFSTRUCT:', e);
+                }
+              }
+              
               lastResult = ctx.api.wisp_run_eval(ctx.heap, run, 4_000_000) >>> 0;
               
               // Print result of each form to console
@@ -563,9 +691,12 @@
                 try {
                   const runErr = ctx.api.wisp_run_err(ctx.heap, run);
                   const runExp = ctx.api.wisp_run_exp(ctx.heap, run);
+                  const runVal = ctx.api.wisp_run_val(ctx.heap, run);
+                  
                   console.error(`Form ${formCount} returned zap (error)`);
-                  console.error('Error value:', runErr, 'hex:', '0x' + runErr.toString(16));
-                  console.error('Expression:', runExp, 'hex:', '0x' + runExp.toString(16));
+                  console.error('Error value:', runErr, 'hex:', '0x' + (runErr >>> 0).toString(16));
+                  console.error('Expression:', runExp, 'hex:', '0x' + (runExp >>> 0).toString(16));
+                  console.error('Value:', runVal, 'hex:', '0x' + (runVal >>> 0).toString(16));
                   
                   // Try to format the expression that failed
                   try {
@@ -575,13 +706,52 @@
                     console.error('Could not format expression:', e);
                   }
                   
-                  if (runErr !== ctx.sys.nil) {
+                  // Try to format the value if it's not nah
+                  if (runVal !== ctx.sys.nah) { // nah value
                     try {
-                      const errStr = formatResult(ctx, runErr);
-                      console.error('Error details:', errStr);
+                      const valStr = formatResult(ctx, runVal);
+                      console.error('Failed value:', valStr);
                     } catch (e) {
-                      console.error('Could not format error:', e);
+                      console.error('Could not format value:', e);
                     }
+                  }
+                  
+                  // Always try to format error, even if it's nil
+                  try {
+                    const errStr = formatResult(ctx, runErr);
+                    console.error('Error details:', errStr);
+                  } catch (e) {
+                    console.error('Could not format error:', e);
+                  }
+                  
+                  // Try to get more context about the error
+                  try {
+                    // Check if error is a vector (condition)
+                    const errTag = (runErr >>> 27) & 0x1f;
+                    if (errTag === 0x19) { // v32 tag
+                      const vec = ctx.loadVector(runErr);
+                      console.error('Error condition vector (', vec.length, 'elements):');
+                      vec.forEach((v, i) => {
+                        try {
+                          const vStr = formatResult(ctx, v);
+                          console.error(`  [${i}]:`, vStr);
+                        } catch (e) {
+                          console.error(`  [${i}]: [format error: ${e}]`);
+                        }
+                      });
+                    } else if (runErr !== ctx.sys.nil) {
+                      console.error('Error is not a vector, tag:', errTag.toString(16));
+                    }
+                  } catch (e) {
+                    console.error('Could not analyze error structure:', e);
+                  }
+                  
+                  // Try to get context/continuation info
+                  try {
+                    // We can't easily get the continuation, but we can log what we have
+                    console.error('Error analysis complete');
+                  } catch (e) {
+                    console.error('Could not get context:', e);
                   }
                 } catch (e) {
                   console.error(`Form ${formCount} returned zap (error) - could not get details:`, e);
@@ -671,6 +841,8 @@
       if (value === ctx.sys.nil) return "nil";
       if (value === ctx.sys.t) return "t";
       if (value === ctx.sys.zap) return "zap";
+      if (value === ctx.sys.nah) return "nah";
+      if (value === ctx.sys.top) return "top";
       
       // Integers: if bit 31 is 0, it's a 31-bit fixnum
       if ((value & 0x80000000) === 0) {
@@ -743,9 +915,30 @@
           return `[cons: 0x${value.toString(16)}]`; 
         }
       } else if (tag === tags.sym) {
-        // Symbol - we can't easily get the name without more API functions
-        // Just return a symbol indicator
+        // Try to get symbol name using the new API function
+        try {
+          if (ctx.api.wisp_heap_get_sym_str) {
+            const strPtr = ctx.api.wisp_heap_get_sym_str(ctx.heap, value) >>> 0;
+            if (strPtr !== ctx.sys.zap && strPtr !== ctx.sys.nil) {
+              const strTag = (strPtr >>> 27) & 0x1f;
+              if (strTag === tags.v08) {
+                const name = ctx.loadString(strPtr);
+                return name;
+              }
+            }
+          }
+        } catch (e) {
+          // Fall through to hex display
+        }
         return `[symbol: 0x${value.toString(16)}]`;
+      } else if (tag === tags.sys) {
+        // System values
+        const sysIdx = value & 0x7ffffff; // Extract the index part
+        const sysNames = ['nil', 't', 'nah', 'zap', 'top'];
+        if (sysIdx < sysNames.length) {
+          return sysNames[sysIdx];
+        }
+        return `[sys:${sysIdx}: 0x${value.toString(16)}]`;
       } else if (tag === tags.fun || tag === tags.mac) {
         // Function or macro
         return `[${tag === tags.fun ? 'function' : 'macro'}: 0x${value.toString(16)}]`;

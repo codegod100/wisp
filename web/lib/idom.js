@@ -817,7 +817,7 @@ var require_incremental_dom_cjs = __commonJS({
 });
 
 // lib/idom.ts
-var dom = __toESM(require_incremental_dom_cjs());
+var dom = __toESM(require_incremental_dom_cjs(), 1);
 var idom_default = dom;
 export {
   idom_default as default

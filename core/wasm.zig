@@ -334,6 +334,10 @@ export fn wisp_heap_get_duo_tail(heap: *Wisp.Heap, duo: u32) u32 {
     return heap.get(.duo, .cdr, duo) catch Wisp.zap;
 }
 
+export fn wisp_heap_get_sym_str(heap: *Wisp.Heap, sym: u32) u32 {
+    return heap.get(.sym, .str, sym) catch Wisp.zap;
+}
+
 export fn wisp_heap_free_pin(heap: *Wisp.Heap, pin: u32) void {
     heap.releasePin(pin);
 }

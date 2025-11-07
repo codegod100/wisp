@@ -100,6 +100,17 @@
     ;; This will create them in the KEYWORD package automatically
     (READ-FROM-STRING name-str)))
 
+;; Helper: build struct slots from slot names and values
+;; Takes a list of slot names and a list of values, returns association list
+(defun build-struct-slots (slot-names values)
+  (if (nil? slot-names)
+      nil
+    (let ((slot-name (head slot-names))
+          (slot-value (head values))
+          (slot-key (build-slot-keyword slot-name)))
+      (cons (cons slot-key slot-value)
+            (build-struct-slots (tail slot-names) (tail values))))))
+
 ;; Helper: create accessor function for a slot (called at runtime)
 (defun create-accessor (struct-name slot-name)
   (let ((accessor-name (build-accessor-name struct-name slot-name))
@@ -121,35 +132,39 @@
       (create-all-accessors struct-name (tail slots)))))
 
 ;; DEFSTRUCT - defines a struct type
-;; For now, use hardcoded names - dynamic names can be added later
+;; Uses the struct name's case for constructor and predicate names
 (defmacro defstruct (name &rest slots)
   `(do
      ;; Store the struct definition
      (set-struct-def ',name ',slots)
      
-     ;; Create constructor function - hardcode make-FOO for now
-     ;; Tag struct instances with the struct name as the first element
-     (set-symbol-function!
-      (quote make-FOO)
-      (fn (&rest kv-pairs)
-        ;; Build association list with struct name tag - hardcode :A and :B for now
-        ;; Format: (FOO (:A . 32) (:B . 15))
-        (let ((struct-instance
-               (cons (quote ,name)
-                     (cons (cons (quote :A) (head kv-pairs))
-                           (cons (cons (quote :B) (head (tail kv-pairs)))
-                                 nil)))))
-          struct-instance)))
-     
-     ;; Create predicate function to check if value is this struct type
-     (set-symbol-function!
-      (quote FOO?)
-      (fn (x)
-        ;; Check if it's a list starting with the struct name
-        ;; The struct format is (FOO (:A . 32) (:B . 15))
-        (if (pair? x)
-            (eq? (head x) (quote ,name))
-          nil)))
+     ;; Build constructor and predicate names at runtime using the struct name's case
+     (let ((constructor-name (build-constructor-name (quote ,name)))
+           (predicate-name (build-predicate-name (quote ,name))))
+       
+       ;; Create constructor function - uses struct name's case
+       ;; Tag struct instances with the struct name as the first element
+       (set-symbol-function!
+        constructor-name
+        (fn (&rest kv-pairs)
+          ;; Build association list with struct name tag
+          ;; Format: (NAME (:slot1 . val1) (:slot2 . val2) ...)
+          (let ((struct-instance
+                 (cons (quote ,name)
+                       (build-struct-slots (quote ,slots) kv-pairs))))
+            struct-instance)))
+       
+       ;; Create predicate function to check if value is this struct type
+       (set-symbol-function!
+        predicate-name
+        (fn (x)
+          ;; Check if it's a list starting with the struct name
+          (if (pair? x)
+              (eq? (head x) (quote ,name))
+            nil)))
+       
+       ;; Create accessor functions for each slot
+       (create-all-accessors (quote ,name) (quote ,slots)))
      
      ;; Return the struct name
      ',name))

@@ -34,8 +34,10 @@
   "scripts": {
     "build": "./build",
     "test": "NODE_OPTIONS=--experimental-wasi-unstable-preview1 jest",
+    "test:wisp": "node test-runner-node.js",
     "watch": "NODE_OPTIONS=--experimental-wasi-unstable-preview1 jest --watchAll"
   },
+  "type": "module",
   "devDependencies": {
     "@isomorphic-git/cors-proxy": "^2.7.1",
     "@nota-lang/esbuild-lezer": "^0.3.3",

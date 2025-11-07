@@ -8544,7 +8544,7 @@ var require_diff3 = __commonJS({
 });
 
 // lib/git.ts
-var import_lightning_fs = __toESM(require_src());
+var import_lightning_fs = __toESM(require_src(), 1);
 
 // node_modules/isomorphic-git/index.js
 var isomorphic_git_exports = {};
@@ -17505,7 +17505,7 @@ var index2 = { request };
 var web_default = index2;
 
 // lib/git.ts
-var import_buffer = __toESM(require_buffer());
+var import_buffer = __toESM(require_buffer(), 1);
 window.Buffer = import_buffer.Buffer;
 var git_default = {
   fs: import_lightning_fs.default,
