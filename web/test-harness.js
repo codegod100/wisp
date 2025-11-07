@@ -30,9 +30,9 @@ export const tests = [
   },
   {
     name: "test SYMBOL-NAME",
-    code: "(SYMBOL-NAME (quote foo))",
+    code: "(symbol-name (quote foo))",
     expected: null,
-    description: "Test SYMBOL-NAME jet"
+    description: "Test SYMBOL-NAME jet via wrapper"
   },
   {
     name: "test STRING-APPEND",
@@ -42,7 +42,7 @@ export const tests = [
   },
   {
     name: "test SYMBOL-NAME then STRING-APPEND",
-    code: '(let ((name-str (SYMBOL-NAME (quote foo)))) (STRING-APPEND "make-" name-str))',
+    code: '(let ((name-str (symbol-name (quote foo)))) (STRING-APPEND "make-" name-str))',
     expected: '"make-FOO"',
     description: "Test SYMBOL-NAME + STRING-APPEND"
   },

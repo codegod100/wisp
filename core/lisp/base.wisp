@@ -324,6 +324,9 @@
 (defun integer? (x)
   (eq? 'integer (type-of x)))
 
+(defun symbol-name (sym)
+  (SYMBOL-NAME sym))
+
 (defun vector? (x)
   (eq? 'vector (type-of x)))
 
