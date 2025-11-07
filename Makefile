@@ -10,8 +10,14 @@ core-fast:; cd core && zig build -Doptimize=ReleaseFast
 # Native tests (fast, no WASM)
 test:; cd core && zig build test
 
-# WASM tests (requires web build)
-test-wasm: web; cd web && node test-runner-node.js
+# WASM tests (requires web build, 5 second timeout)
+test-wasm: web
+	@timeout 5 sh -c 'cd web && node test-runner-node.js' || \
+		(exit_code=$$?; \
+		if [ $$exit_code -eq 124 ]; then \
+			echo "Tests timed out after 5 seconds"; \
+		fi; \
+		exit $$exit_code)
 
 # Web build (incremental)
 web:; cd web && ./build

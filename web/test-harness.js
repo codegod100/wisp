@@ -130,7 +130,8 @@ export async function runTests(ctx, options = {}) {
         }
 
         const run = ctx.api.wisp_run_init(ctx.heap, form);
-        lastResult = ctx.api.wisp_run_eval(ctx.heap, run, 4_000_000) >>> 0;
+        // Reduced step limit for faster failure on hanging tests
+        lastResult = ctx.api.wisp_run_eval(ctx.heap, run, 100_000) >>> 0;
 
         if (lastResult === ctx.sys.zap) {
           // Get error details

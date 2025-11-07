@@ -66,7 +66,8 @@ async function loadWispFile(ctx, filename) {
       formIndex++;
       const form = ctx.api.wisp_heap_get_duo_head(ctx.heap, current) >>> 0;
       const run = ctx.api.wisp_run_init(ctx.heap, form);
-      const result = ctx.api.wisp_run_eval(ctx.heap, run, 4_000_000) >>> 0;
+      // Reduced step limit for faster failure on hanging loads
+      const result = ctx.api.wisp_run_eval(ctx.heap, run, 100_000) >>> 0;
       if (result === ctx.sys.zap) {
         const runErr = ctx.api.wisp_run_err(ctx.heap, run);
         const runExp = ctx.api.wisp_run_exp(ctx.heap, run);
@@ -88,6 +89,26 @@ async function main() {
   console.log('Initializing Wisp...');
   const ctx = await initWisp();
   
+  // Load test helpers first - provides symbol-name and other utilities
+  console.log('Loading test helpers...');
+  const helperFiles = [
+    'test-helpers.wisp',
+    './test-helpers.wisp',
+    './dist/test-helpers.wisp'
+  ];
+  
+  let helpersLoaded = false;
+  for (const file of helperFiles) {
+    try {
+      if (await loadWispFile(ctx, file)) {
+        helpersLoaded = true;
+        break;
+      }
+    } catch (e) {
+      // Try next path
+    }
+  }
+  
   // Load required files - try multiple possible locations
   console.log('Loading base files...');
   const wispFiles = [
@@ -108,6 +129,9 @@ async function main() {
     }
   }
   
+  if (!helpersLoaded) {
+    console.warn('Warning: Could not load test-helpers.wisp, some tests may fail');
+  }
   if (!loaded) {
     console.warn('Warning: Could not load structs.wisp, tests may fail');
   }
@@ -115,9 +139,9 @@ async function main() {
   // Get test name from command line if provided
   const testName = process.argv[2];
   
-  // Run tests
+  // Run tests with timeout protection
   console.log('\n=== Running Tests ===');
-  const summary = await runTests(ctx, {
+  const testPromise = runTests(ctx, {
     verbose: true,
     stopOnError: false,
     onTestError: (result, error) => {
@@ -126,8 +150,19 @@ async function main() {
     }
   });
   
-  // Exit with appropriate code
-  process.exit(summary.failed > 0 ? 1 : 0);
+  // Add timeout to prevent hanging (4 seconds to leave 1 second buffer for Makefile timeout)
+  const timeoutPromise = new Promise((_, reject) => {
+    setTimeout(() => reject(new Error('Test suite timed out after 4 seconds')), 4000);
+  });
+  
+  try {
+    const summary = await Promise.race([testPromise, timeoutPromise]);
+    // Exit with appropriate code
+    process.exit(summary.failed > 0 ? 1 : 0);
+  } catch (error) {
+    console.error('\n' + error.message);
+    process.exit(124); // Exit code 124 is used by timeout command
+  }
 }
 
 main().catch(error => {
