@@ -34,4 +34,13 @@ wasm-sanity:
 	cd core && zig build -Dtarget=wasm32-wasi && \
 	  wasmtime zig-out/bin/wisp.wasm eval "(+ 1 1)"
 
-.PHONY: all core-debug core-fast test test-wasm web clean deploy deploy-nodetown wasm-sanity
+# Build WASI executable for wasmtime
+wasi-build:
+	cd core && zig build-exe main.zig -target wasm32-wasi -O ReleaseFast --name wisp-wasi
+
+# Run Wisp code with wasmtime (requires wasi-build first)
+# Usage: make wasmtime CODE='"(+ 1 2 3)"'
+wasmtime: wasi-build
+	@cd core && mise exec -- wasmtime wisp-wasi.wasm eval $(CODE)
+
+.PHONY: all core-debug core-fast test test-wasm web clean deploy deploy-nodetown wasm-sanity wasi-build wasmtime
