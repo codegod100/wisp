@@ -59,13 +59,16 @@
   (cond
     ;; T matches everything
     ((eq? type-spec 't) t)
-    ;; Check if type-spec is a predicate function (symbol)
+    ;; Check if type-spec is a predicate function (symbol with function)
     ((symbol? type-spec)
      (let ((pred-fn (symbol-function type-spec)))
        (if pred-fn
-           ;; Call the predicate function
+           ;; Call the predicate function (e.g., point? for structs)
            (call pred-fn value)
-         nil)))
+         ;; No function, treat as type name and normalize
+         (let ((value-type (normalized-type-of value))
+               (spec-type (normalize-type type-spec)))
+           (eq? value-type spec-type)))))
     ;; Normalize both and check
     (t
      (let ((value-type (normalized-type-of value))

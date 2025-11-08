@@ -129,11 +129,34 @@ async function main() {
     }
   }
   
+  // Load generics.wisp for defmethod support
+  console.log('Loading generics...');
+  const genericsFiles = [
+    'generics.wisp',
+    './generics.wisp',
+    './dist/generics.wisp'
+  ];
+  
+  let genericsLoaded = false;
+  for (const file of genericsFiles) {
+    try {
+      if (await loadWispFile(ctx, file)) {
+        genericsLoaded = true;
+        break;
+      }
+    } catch (e) {
+      // Try next path
+    }
+  }
+  
   if (!helpersLoaded) {
     console.warn('Warning: Could not load test-helpers.wisp, some tests may fail');
   }
   if (!loaded) {
     console.warn('Warning: Could not load structs.wisp, tests may fail');
+  }
+  if (!genericsLoaded) {
+    console.warn('Warning: Could not load generics.wisp, defmethod tests may fail');
   }
   
   // Get test name from command line if provided

@@ -88,6 +88,93 @@ export const tests = [
     expected: "32",
     description: "Test struct accessor function"
   },
+  {
+    name: "defmethod basic definition",
+    code: "(defmethod area ((shape integer)) (* shape shape))",
+    expected: null,
+    description: "Test basic defmethod definition"
+  },
+  {
+    name: "defmethod call with integer",
+    code: `
+      (defmethod area ((shape integer)) (* shape shape))
+      (area 5)
+    `,
+    expected: "25",
+    description: "Test calling generic function with integer argument"
+  },
+  {
+    name: "defmethod multiple methods",
+    code: `
+      (defmethod area ((shape integer)) (* shape shape))
+      (defmethod area ((shape string)) "no area")
+      (area 5)
+    `,
+    expected: "25",
+    description: "Test multiple methods with different types"
+  },
+  {
+    name: "defmethod dispatch to string method",
+    code: `
+      (defmethod area ((shape integer)) (* shape shape))
+      (defmethod area ((shape string)) "no area")
+      (area "circle")
+    `,
+    expected: '"no area"',
+    description: "Test method dispatch to string method"
+  },
+  {
+    name: "defmethod with untyped parameter",
+    code: `
+      (defmethod area (shape) "default area")
+      (area 42)
+    `,
+    expected: null,
+    description: "Test defmethod with untyped parameter (should match anything)"
+  },
+  {
+    name: "defmethod with struct predicate",
+    code: `
+      (defstruct point x y)
+      (defmethod area ((p point?)) (+ (point-x p) (point-y p)))
+      (area (make-point :x 10 :y 20))
+    `,
+    expected: "30",
+    description: "Test defmethod dispatching on struct predicate"
+  },
+  {
+    name: "defmethod multiple structs",
+    code: `
+      (defstruct circle radius)
+      (defstruct rectangle width height)
+      (defmethod area ((c circle?)) (* (circle-radius c) (circle-radius c)))
+      (defmethod area ((r rectangle?)) (* (rectangle-width r) (rectangle-height r)))
+      (area (make-rectangle :width 5 :height 10))
+    `,
+    expected: "50",
+    description: "Test defmethod with multiple struct types"
+  },
+  {
+    name: "defmethod struct vs integer",
+    code: `
+      (defstruct point x y)
+      (defmethod area ((p point?)) "point area")
+      (defmethod area ((n integer)) "integer area")
+      (area (make-point :x 1 :y 2))
+    `,
+    expected: '"point area"',
+    description: "Test defmethod dispatch between struct and integer"
+  },
+  {
+    name: "defmethod struct accessor in method",
+    code: `
+      (defstruct person name age)
+      (defmethod greet ((p person?)) (STRING-APPEND "Hello, " (person-name p)))
+      (greet (make-person :name "Alice" :age 30))
+    `,
+    expected: null,
+    description: "Test defmethod using struct accessors within method body"
+  },
   // Add more tests here
 ];
 
