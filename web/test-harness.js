@@ -175,6 +175,27 @@ export const tests = [
     expected: null,
     description: "Test defmethod using struct accessors within method body"
   },
+  {
+    name: "defmethod with struct name (no predicate)",
+    code: `
+      (defstruct point x y)
+      (defmethod area ((p point)) (+ (point-x p) (point-y p)))
+      (area (make-point :x 10 :y 20))
+    `,
+    expected: "30",
+    description: "Test defmethod using struct name directly (not predicate)"
+  },
+  {
+    name: "defmethod struct name vs predicate",
+    code: `
+      (defstruct circle radius)
+      (defmethod area ((c circle?)) "predicate version")
+      (defmethod area ((c circle)) (* (circle-radius c) (circle-radius c)))
+      (area (make-circle :radius 5))
+    `,
+    expected: "25",
+    description: "Test that struct name works and takes precedence when defined after predicate"
+  },
   // Add more tests here
 ];
 

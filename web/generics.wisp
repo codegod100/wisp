@@ -59,16 +59,25 @@
   (cond
     ;; T matches everything
     ((eq? type-spec 't) t)
-    ;; Check if type-spec is a predicate function (symbol with function)
+    ;; Check if type-spec is a symbol
     ((symbol? type-spec)
-     (let ((pred-fn (symbol-function type-spec)))
-       (if pred-fn
-           ;; Call the predicate function (e.g., point? for structs)
-           (call pred-fn value)
-         ;; No function, treat as type name and normalize
-         (let ((value-type (normalized-type-of value))
-               (spec-type (normalize-type type-spec)))
-           (eq? value-type spec-type)))))
+     ;; First check if it's a struct name (struct names take precedence)
+     (let ((struct-def (get-struct-def type-spec)))
+       (if struct-def
+           ;; It's a struct name - check if value is an instance of this struct
+           ;; Struct instances are pairs with the struct name as the head
+           (if (pair? value)
+               (eq? (head value) type-spec)
+             nil)
+         ;; Not a struct, check if it's a predicate function
+         (let ((pred-fn (symbol-function type-spec)))
+           (if pred-fn
+               ;; Call the predicate function (e.g., point? for structs)
+               (call pred-fn value)
+             ;; No function, treat as type name and normalize
+             (let ((value-type (normalized-type-of value))
+                   (spec-type (normalize-type type-spec)))
+               (eq? value-type spec-type)))))))
     ;; Normalize both and check
     (t
      (let ((value-type (normalized-type-of value))
