@@ -147,12 +147,36 @@ export const tests = [
     code: `
       (defstruct circle radius)
       (defstruct rectangle width height)
-      (defmethod area ((c circle?)) (* (circle-radius c) (circle-radius c)))
-      (defmethod area ((r rectangle?)) (* (rectangle-width r) (rectangle-height r)))
+      (defmethod area ((c circle)) (* (circle-radius c) (circle-radius c)))
+      (defmethod area ((r rectangle)) (* (rectangle-width r) (rectangle-height r)))
       (area (make-rectangle :width 5 :height 10))
     `,
     expected: "50",
-    description: "Test defmethod with multiple struct types"
+    description: "Test defmethod with multiple struct types using struct names"
+  },
+  {
+    name: "defmethod dispatch on two struct types",
+    code: `
+      (defstruct circle radius)
+      (defstruct rectangle width height)
+      (defmethod area ((c circle)) (* (circle-radius c) (circle-radius c)))
+      (defmethod area ((r rectangle)) (* (rectangle-width r) (rectangle-height r)))
+      (list (area (make-circle :radius 3)) (area (make-rectangle :width 4 :height 5)))
+    `,
+    expected: null,
+    description: "Test defmethod correctly dispatches on two different struct types"
+  },
+  {
+    name: "defmethod with two struct type parameters",
+    code: `
+      (defstruct circle radius)
+      (defstruct rectangle width height)
+      (defmethod combine ((c circle) (r rectangle)) 
+        (+ (circle-radius c) (* (rectangle-width r) (rectangle-height r))))
+      (combine (make-circle :radius 5) (make-rectangle :width 3 :height 4))
+    `,
+    expected: "17",
+    description: "Test defmethod with two different struct types as parameters in same method"
   },
   {
     name: "defmethod struct vs integer",
