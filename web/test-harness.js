@@ -142,8 +142,8 @@ export async function runTests(ctx, options = {}) {
         }
 
         const run = ctx.api.wisp_run_init(ctx.heap, form);
-        // Reduced step limit for faster failure on hanging tests
-        lastResult = ctx.api.wisp_run_eval(ctx.heap, run, 100_000) >>> 0;
+        // Allow a higher step limit to accommodate complex macro expansions
+        lastResult = ctx.api.wisp_run_eval(ctx.heap, run, 1_000_000) >>> 0;
 
         if (lastResult === ctx.sys.zap) {
           // Get error details

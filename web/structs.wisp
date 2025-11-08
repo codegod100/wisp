@@ -39,73 +39,46 @@
         ;; Keep this entry, continue
         (cons entry (set-struct-def-helper name slots (tail alist)))))))
 
-;; Helper: read from string (wrapper for READ-FROM-STRING jet)
-;; Note: READ-FROM-STRING takes a string (v08) and returns a value
-(defun read-from-string (str)
-  (READ-FROM-STRING str))
-
-;; Helper: find value in keyword-value pairs
-(defun find-kv-value (key kv-pairs)
+;; Helper: find a slot's value within a flat keyword/value list
+(defun find-slot-value (slot-name kv-pairs)
   (if (nil? kv-pairs)
       nil
-    (let ((pair (head kv-pairs)))
-      (if (eq? (head pair) key)
-          (tail pair)
-        (find-kv-value key (tail kv-pairs))))))
-
-;; Helper: get or cache the base package
-(defun get-base-package ()
-  (if (nil? *base-package*)
-      (let ((pkg (SYMBOL-PACKAGE (read-from-string "test"))))
-        (set! *base-package* pkg)
-        pkg)
-    *base-package*))
-
-;; Helper: intern a symbol (wrapper for INTERN jet)
-;; INTERN takes (string package) and creates/finds the symbol
-;; Since READ-FROM-STRING works directly, let's try using call with the function
-(defun intern-symbol (str &optional pkg)
-  ;; Try using call to invoke READ-FROM-STRING
-  (call #'READ-FROM-STRING str))
+    (let ((key (head kv-pairs))
+          (rest (tail kv-pairs)))
+      (if (nil? rest)
+          nil
+        (let ((value (head rest)))
+          (if (STRING-EQUAL? (SYMBOL-NAME key)
+                             (SYMBOL-NAME slot-name))
+              value
+            (find-slot-value slot-name (tail rest))))))))
 
 ;; Helper: build constructor name at runtime
-;; Inline READ-FROM-STRING directly since helper functions don't work
-;; Use STRING-APPEND jet directly instead of string-append function
 (defun build-constructor-name (struct-name)
-  (let ((name-str (SYMBOL-NAME struct-name))
-        (make-name-str (STRING-APPEND "make-" name-str)))
-    ;; Call READ-FROM-STRING directly - we know this works
-    (READ-FROM-STRING make-name-str)))
+  (READ-FROM-STRING (STRING-APPEND "make-" (SYMBOL-NAME struct-name))))
 
 ;; Helper: build accessor name at runtime
 (defun build-accessor-name (struct-name slot-name)
-  (let ((name-str (STRING-APPEND (SYMBOL-NAME struct-name) "-" (SYMBOL-NAME slot-name))))
-    ;; Call READ-FROM-STRING directly
-    (READ-FROM-STRING name-str)))
+  (READ-FROM-STRING (STRING-APPEND (SYMBOL-NAME struct-name) "-" (SYMBOL-NAME slot-name))))
 
 ;; Helper: build predicate name at runtime
 (defun build-predicate-name (struct-name)
-  (let ((name-str (STRING-APPEND (SYMBOL-NAME struct-name) "?")))
-    ;; Call READ-FROM-STRING directly
-    (READ-FROM-STRING name-str)))
+  (READ-FROM-STRING (STRING-APPEND (SYMBOL-NAME struct-name) "?")))
 
 ;; Helper: build keyword from slot name at runtime
 (defun build-slot-keyword (slot-name)
-  (let ((name-str (STRING-APPEND ":" (SYMBOL-NAME slot-name))))
-    ;; Keywords are created by READ-FROM-STRING with the : prefix
-    ;; This will create them in the KEYWORD package automatically
-    (READ-FROM-STRING name-str)))
+  (READ-FROM-STRING (STRING-APPEND ":" (SYMBOL-NAME slot-name))))
 
 ;; Helper: build struct slots from slot names and values
 ;; Takes a list of slot names and a list of values, returns association list
-(defun build-struct-slots (slot-names values)
+(defun build-struct-slots (slot-names kv-pairs)
   (if (nil? slot-names)
       nil
-    (let ((slot-name (head slot-names))
-          (slot-value (head values))
-          (slot-key (build-slot-keyword slot-name)))
+    (let* ((slot-name (head slot-names))
+           (slot-key (build-slot-keyword slot-name))
+           (slot-value (find-slot-value slot-name kv-pairs)))
       (cons (cons slot-key slot-value)
-            (build-struct-slots (tail slot-names) (tail values))))))
+            (build-struct-slots (tail slot-names) kv-pairs)))))
 
 ;; Helper: create accessor function for a slot (called at runtime)
 (defun create-accessor (struct-name slot-name)
@@ -143,12 +116,11 @@
        (set-symbol-function!
         constructor-name
         (fn (&rest kv-pairs)
-          ;; Build association list with struct name tag
-          ;; Format: (NAME (:slot1 . val1) (:slot2 . val2) ...)
-          (let ((struct-instance
-                 (cons (quote ,name)
-                       (build-struct-slots (quote ,slots) kv-pairs))))
-            struct-instance)))
+          (let ((slot-entries (build-struct-slots (quote ,slots) kv-pairs)))
+            ;; Build association list with struct name tag
+            ;; Format: (NAME (:slot1 . val1) (:slot2 . val2) ...)
+            (let ((struct-instance (cons (quote ,name) slot-entries)))
+              struct-instance)))
        
        ;; Create predicate function to check if value is this struct type
        (set-symbol-function!

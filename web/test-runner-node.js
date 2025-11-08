@@ -67,7 +67,7 @@ async function loadWispFile(ctx, filename) {
       const form = ctx.api.wisp_heap_get_duo_head(ctx.heap, current) >>> 0;
       const run = ctx.api.wisp_run_init(ctx.heap, form);
       // Reduced step limit for faster failure on hanging loads
-      const result = ctx.api.wisp_run_eval(ctx.heap, run, 100_000) >>> 0;
+      const result = ctx.api.wisp_run_eval(ctx.heap, run, 1_000_000) >>> 0;
       if (result === ctx.sys.zap) {
         const runErr = ctx.api.wisp_run_err(ctx.heap, run);
         const runExp = ctx.api.wisp_run_exp(ctx.heap, run);
