@@ -20,6 +20,11 @@ for file in *.html index.js index.css; do
   fi
 done 2>/dev/null || true
 
+# Copy widget-demo.html as index.html (make it the default page)
+if [ -f widget-demo.html ]; then
+  cp widget-demo.html dist/index.html
+fi
+
 # Copy lib directory (only if it changed - esbuild handles this)
 if [ -d lib ] && [ ! -d dist/lib ] || [ lib -nt dist/lib ] 2>/dev/null; then
   cp -r lib dist/ 2>/dev/null || true
