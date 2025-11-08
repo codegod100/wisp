@@ -16,6 +16,11 @@ pub fn build(b: *std.Build) void {
             .optimize = optimize,
         }),
     });
+    
+    // Link readline for Unix-like systems (not Windows or WASM)
+    // We check at runtime in the code, but link the library if available
+    exe.linkLibC();
+    exe.linkSystemLibrary("readline");
 
     // const wasmExe = b.addExecutable(.{
     //     .name = "wisp",

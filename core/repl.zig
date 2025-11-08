@@ -29,6 +29,14 @@ const Tidy = @import("./tidy.zig");
 const Wasm = @import("./wasm.zig");
 const Wisp = @import("./wisp.zig");
 
+const use_readline = builtin.os.tag != .windows and builtin.os.tag != .wasi;
+
+const c = if (use_readline) @cImport({
+    @cInclude("readline/readline.h");
+    @cInclude("readline/history.h");
+    @cInclude("stdlib.h");
+}) else struct {};
+
 pub const crypto_always_getrandom: bool = true;
 
 var gpa = std.heap.GeneralPurposeAllocator(.{}){};
@@ -47,6 +55,36 @@ pub fn main() anyerror!void {
     }
 }
 
+fn readSexpWithReadline(
+    allocator: std.mem.Allocator,
+    heap: *Wisp.Heap,
+    prompt: []const u8,
+) !?u32 {
+    if (!use_readline) {
+        // Fallback to simple line reading if readline not available
+        var io_instance = std.Io.Threaded.init(orb);
+        var stdin_buf: [4096]u8 = undefined;
+        var stdin_reader = std.fs.File.stdin().reader(io_instance.io(), &stdin_buf);
+        return readSexp(&stdin_reader.interface, allocator, heap);
+    }
+    
+    const c_prompt = try allocator.dupeZ(u8, prompt);
+    defer allocator.free(c_prompt);
+    
+    const line_ptr = c.readline(c_prompt);
+    if (line_ptr == null) {
+        return null;
+    }
+    defer c.free(line_ptr);
+    
+    const line = std.mem.span(line_ptr);
+    if (line.len > 0) {
+        c.add_history(line_ptr);
+    }
+    
+    return try Sexp.read(heap, line);
+}
+
 fn readSexp(
     stream: anytype,
     allocator: std.mem.Allocator,
@@ -60,11 +98,6 @@ fn readSexp(
 }
 
 pub fn repl() anyerror!void {
-    var io_instance = std.Io.Threaded.init(orb);
-    var stdin_buf: [4096]u8 = undefined;
-    var stdin_reader = std.fs.File.stdin().reader(io_instance.io(), &stdin_buf);
-    const stdin = &stdin_reader.interface;
-
     var stdout_buf: [4096]u8 = undefined;
     var stdout_writer = std.fs.File.stdout().writer(&stdout_buf);
     const stdout = &stdout_writer.interface;
@@ -83,14 +116,11 @@ pub fn repl() anyerror!void {
     // _ = try Step.evaluate(&heap, &baseTestRun, 1_000_000);
 
     repl: while (true) {
-        try stdout.writeAll("> ");
-        try stdout.flush();
-
         var arena = std.heap.ArenaAllocator.init(orb);
         const tmp = arena.allocator();
         defer arena.deinit();
 
-        if (try readSexp(stdin, tmp, &heap)) |term| {
+        if (try readSexpWithReadline(tmp, &heap, "> ")) |term| {
             var run = Step.initRun(term);
             const step = Step{ .heap = &heap, .run = &run, .tmp = tmp };
             _ = step;

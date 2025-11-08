@@ -40,7 +40,16 @@ wasi-build:
 
 # Run Wisp code with wasmtime (requires wasi-build first)
 # Usage: make wasmtime CODE='"(+ 1 2 3)"'
+# For structs: make wasmtime CODE='"(defstruct foo a b) (let ((f (make-foo :a 43))) (foo-a f))"' STRUCTS=1
 wasmtime: wasi-build
-	@cd core && mise exec -- wasmtime wisp-wasi.wasm eval $(CODE)
+	@if [ "$(STRUCTS)" = "1" ]; then \
+		./web/run-with-structs.sh "$(CODE)"; \
+	else \
+		cd core && mise exec -- wasmtime wisp-wasi.wasm eval $(CODE); \
+	fi
 
-.PHONY: all core-debug core-fast test test-wasm web clean deploy deploy-nodetown wasm-sanity wasi-build wasmtime
+# Interactive REPL
+repl: core-debug
+	cd core && zig build run -- repl
+
+.PHONY: all core-debug core-fast test test-wasm web clean deploy deploy-nodetown wasm-sanity wasi-build wasmtime repl

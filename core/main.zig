@@ -87,6 +87,18 @@ pub fn main() anyerror!void {
         try @import("./repl.zig").repl();
     } else if (std.mem.eql(u8, cmd, "repl")) {
         var heap = try Wisp.Heap.fromEmbeddedCore(orb);
+        
+        // Load structs.wisp if it exists
+        if (File.cwd(tmp)) |root| {
+            if (root.readFileAlloc("web/structs.wisp", tmp, std.Io.Limit.limited(maxCodeSize))) |structs_code| {
+                _ = try heap.load(structs_code);
+            } else |_| {
+                // If structs.wisp doesn't exist, continue without it
+            }
+        } else |_| {
+            // If we can't get cwd, continue without structs
+        }
+        
         _ = try heap.load("(repl)");
         try stderr.print(";; repl finished\n", .{});
         try stderr.flush();

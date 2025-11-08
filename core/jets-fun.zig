@@ -18,6 +18,7 @@
 //
 
 const std = @import("std");
+const builtin = @import("builtin");
 
 const Wisp = @import("./wisp.zig");
 
@@ -27,6 +28,14 @@ const Jets = @import("./jets.zig");
 const Sexp = @import("./sexp.zig");
 const Step = @import("./step.zig");
 const Tape = @import("./tape.zig");
+
+const use_readline = builtin.os.tag != .windows and builtin.os.tag != .wasi;
+
+const c = if (use_readline) @cImport({
+    @cInclude("readline/readline.h");
+    @cInclude("readline/history.h");
+    @cInclude("stdlib.h");
+}) else struct {};
 
 const Heap = Wisp.Heap;
 const Rest = Jets.Rest;
@@ -743,6 +752,36 @@ pub fn @"READ-LINE"(step: *Step) anyerror!void {
 }
 
 pub fn @"READ-FROM-STDIN"(step: *Step) anyerror!void {
+    // Use readline if available for better terminal experience
+    if (use_readline) {
+        // Check if stdin is a TTY before using readline
+        const stdin_file = std.fs.File.stdin();
+        if (stdin_file.isTty()) {
+            // Use empty prompt since the Lisp REPL already prints "> "
+            const line_ptr = c.readline(null);
+            if (line_ptr == null) {
+                step.give(.val, nil);
+                return;
+            }
+            defer c.free(line_ptr);
+            
+            const line = std.mem.span(line_ptr);
+            if (line.len > 0) {
+                c.add_history(line_ptr);
+            }
+            
+            if (line.len == 0) {
+                step.give(.val, nil);
+                return;
+            }
+            
+            const val = try Sexp.read(step.heap, line);
+            step.give(.val, try step.heap.cons(val, nil));
+            return;
+        }
+    }
+    
+    // Fallback to stream reading
     var io_instance = std.Io.Threaded.init(step.heap.orb);
     var stdin_buf: [4096]u8 = undefined;
     var stdin_reader = std.fs.File.stdin().reader(io_instance.io(), &stdin_buf);
@@ -996,8 +1035,8 @@ pub fn @"STRING-TO-UPPERCASE"(
     const str = try step.heap.v08slice(v08ptr);
     const upper = try step.heap.orb.alloc(u8, str.len);
     defer step.heap.orb.free(upper);
-    for (str, 0..) |c, i| {
-        upper[i] = std.ascii.toUpper(c);
+    for (str, 0..) |ch, i| {
+        upper[i] = std.ascii.toUpper(ch);
     }
     step.give(.val, try step.heap.newv08(upper));
 }
