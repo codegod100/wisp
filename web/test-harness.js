@@ -13,14 +13,14 @@ export const tests = [
         (symbol-function (quote create-all-accessors))
       )
     `,
-    expected: null, // Just check they exist
+    expected: null,
     description: "Verify all helper functions are defined"
   },
   {
     name: "manual set-struct-def",
     code: "(set-struct-def (quote foo) (quote (a b)))",
     expected: null,
-    description: "Test set-struct-def directly"
+    description: "Test manually updating struct definition table"
   },
   {
     name: "test quote returns symbol",

@@ -22,16 +22,21 @@
         (cons entry (set-struct-def-helper name slots (tail alist)))))))
 
 (defun build-constructor-name (struct-name)
-  (INTERN (STRING-APPEND "make-" (SYMBOL-NAME struct-name)) (find-package "WISP")))
+  (let ((pkg (symbol-package struct-name)))
+    (INTERN (STRING-APPEND "MAKE-" (SYMBOL-NAME struct-name))
+            (if pkg pkg (find-package "WISP")))))
 
 (defun build-accessor-name (struct-name slot-name)
-  (INTERN (STRING-APPEND (SYMBOL-NAME struct-name)
-                        "-"
-                        (SYMBOL-NAME slot-name))
-          (find-package "WISP")))
+  (let ((pkg (symbol-package struct-name)))
+    (INTERN (STRING-APPEND (SYMBOL-NAME struct-name)
+                          "-"
+                          (SYMBOL-NAME slot-name))
+            (if pkg pkg (find-package "WISP")))))
 
 (defun build-predicate-name (struct-name)
-  (INTERN (STRING-APPEND (SYMBOL-NAME struct-name) "?") (find-package "WISP")))
+  (let ((pkg (symbol-package struct-name)))
+    (INTERN (STRING-APPEND (SYMBOL-NAME struct-name) "?")
+            (if pkg pkg (find-package "WISP")))))
 
 (defun symbol-from-name (name)
   (READ-FROM-STRING name))
