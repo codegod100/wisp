@@ -64,6 +64,8 @@ pub fn init(old: *Heap) !Tidy {
             .pkgmap = old.pkgmap,
             .roots = old.roots,
             .pins = old.pins,
+            .please_tidy = false,
+            .inhibit_gc = old.inhibit_gc,
         },
     };
 }

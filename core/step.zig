@@ -982,17 +982,18 @@ pub fn evaluateUntilSpecificContinuation(
     };
 
     var i: u32 = 0;
+    var just_gced = false;
     while (true) {
         if (limit > 0 and i >= limit) break;
 
-        if (!heap.inhibit_gc and (heap.please_tidy or (limit == 0 and i > 0 and @mod(i, 100_000) == 0))) {
+        if (!just_gced and !step.heap.inhibit_gc and (step.heap.please_tidy or (limit == 0 and i > 0 and @mod(i, 100_000) == 0))) {
             // var timer = try std.time.Timer.start();
-            // const s0 = heap.bytesize();
+            // const s0 = step.heap.bytesize();
 
             var gc = try prepareToTidy(&step);
             try finishTidying(&step, &gc);
 
-            // const s1 = heap.bytesize();
+            // const s1 = step.heap.bytesize();
             // const nanoseconds = timer.read();
 
             // if (s0 - s1 > 1_000) {
@@ -1006,7 +1007,11 @@ pub fn evaluateUntilSpecificContinuation(
             // );
             // }
 
-            heap.please_tidy = false;
+            // Ensure please_tidy is cleared (already done in finishTidying, but be explicit)
+            step.heap.please_tidy = false;
+            just_gced = true;
+        } else {
+            just_gced = false;
         }
 
         if ((run.way == breakpoint or run.way == top) and run.val != nah) {
@@ -1061,6 +1066,7 @@ pub fn prepareToTidy(step: *Step) !Tidy {
 pub fn finishTidying(step: *Step, gc: *Tidy) !void {
     try gc.scan();
     step.heap.* = gc.done();
+    step.heap.please_tidy = false;
 }
 
 pub fn newTestHeap() !Heap {
