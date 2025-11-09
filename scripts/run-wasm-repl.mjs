@@ -193,19 +193,32 @@ async function loadFile(ctx, filename) {
   return true;
 }
 
-async function bootstrap(ctx) {
-  const candidates = ['web/structs.wisp', './web/structs.wisp', 'structs.wisp'];
+async function loadFirstAvailable(ctx, candidates, label) {
   for (const candidate of candidates) {
     try {
       if (await loadFile(ctx, candidate)) {
-        console.log(`Loaded ${candidate}`);
-        return;
+        console.log(`Loaded ${label} from ${candidate}`);
+        return true;
       }
     } catch (err) {
       console.warn(`Failed to load ${candidate}: ${err.message}`);
     }
   }
-  console.warn('Warning: could not load structs.wisp');
+  console.warn(`Warning: could not load ${label}`);
+  return false;
+}
+
+async function bootstrap(ctx) {
+  await loadFirstAvailable(
+    ctx,
+    ['web/structs.wisp', './web/structs.wisp', 'structs.wisp'],
+    'structs',
+  );
+  await loadFirstAvailable(
+    ctx,
+    ['web/generics.wisp', './web/generics.wisp', 'generics.wisp'],
+    'generics',
+  );
 }
 
 async function repl() {
