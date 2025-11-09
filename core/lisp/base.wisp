@@ -205,9 +205,14 @@
 ;;; solve that.
 
 (defun iterative-fixpoint (f x)
-  (let ((y (call f x)))
-    (if (eq? x y) x
-      (iterative-fixpoint f y))))
+  (iterative-fixpoint-helper f x 50))
+
+(defun iterative-fixpoint-helper (f x limit)
+  (if (eq? limit 0)
+      x  ; Return current value if limit reached to prevent infinite loops
+    (let ((y (call f x)))
+      (if (equal? x y) x  ; Use equal? instead of eq? to catch semantically equivalent forms
+        (iterative-fixpoint-helper f y (- limit 1))))))
 
 (defun macroexpand-1x (form)
   (if (pair? form)
@@ -217,7 +222,8 @@
               (let ((function-type (type-of function)))
                 (cond ((and (eq? function-type 'function)
                             (not (jet-ctl? function)))
-                       (maptree #'macroexpand-1x form))
+                       ;; Don't expand function calls - they should be evaluated at runtime
+                       form)
                       ((eq? function-type 'macro)
                        (apply function (tail form)))
                       (t form))))
@@ -228,48 +234,63 @@
   (iterative-fixpoint #'macroexpand-1x form))
 
 (defun macroexpand-completely (form)
-  (iterative-fixpoint #'macroexpand-recursively form))
+  (macroexpand-completely-helper form 50))
+
+(defun macroexpand-completely-helper (form limit)
+  (if (eq? limit 0)
+      form  ; Return current form if limit reached to prevent infinite loops
+    (let ((expanded (macroexpand-recursively-helper form limit)))
+      (if (equal? form expanded)
+          form
+        (macroexpand-completely-helper expanded (- limit 1))))))
 
 (defun macroexpand-recursively (form)
-  (if (atom? form) form
-      (let ((head (head form)))
-        (cond
-          ((or (eq? head 'if)
-               (eq? head 'do))
-           (maptree #'macroexpand-completely form))
-          ((eq? head 'let)
-           (let ((bindings (second form))
-                 (body (tail (tail form))))
-             (let ((bindings-expansion
-                     (maptree
-                      (fn (binding)
-                        (let ((x (macroexpand-completely
-                                  (head (tail binding)))))
-                          (if (eq? x (head (tail binding)))
-                              binding
-                              (list (head binding) x))))
-                      bindings))
-                   (body-expansion
-                     (maptree #'macroexpand-completely body)))
-               (if (and (eq? bindings bindings-expansion)
-                        (eq? body body-expansion))
-                   form
-                   (cons 'let (cons bindings-expansion body-expansion))))))
-          ((eq? head 'quote) form)
-          ((eq? head 'backquote) (bq-completely-process (second form)))
-          ((eq? head '%fn)
-           (let ((params (second form))
-                 (body (head (last form))))
-             (let ((body-expansion
-                     (macroexpand-completely body)))
-               (if (eq? body body-expansion)
-                   form
-                   `(%fn ,params ,body-expansion)))))
-          (t
-           (let ((expansion (macroexpand form)))
-             (if (eq? form expansion)
+  (macroexpand-recursively-helper form 50))
+
+(defun macroexpand-recursively-helper (form limit)
+  (if (eq? limit 0)
+      form  ; Return current form if limit reached
+    (if (atom? form) form
+        (let ((head (head form)))
+          (cond
+            ((eq? head 'if)
+           (maptree (fn (x) (macroexpand-completely-helper x (- limit 1))) form))
+            ((eq? head 'do)
+           ;; For do, only expand top-level forms, not recursively
+           (let ((forms (tail form)))
+             (if (nil? forms)
                  form
-                 (macroexpand-completely expansion))))))))
+               (let ((expanded-forms
+                       (map (fn (x) (macroexpand-completely-helper x (- limit 1))) forms)))
+                 (if (equal? forms expanded-forms)
+                     form
+                   (cons 'do expanded-forms))))))
+            ((eq? head 'let)
+             (let ((bindings (second form))
+                   (body (tail (tail form))))
+               ;; Don't expand binding expressions if they're function calls - they should be evaluated at runtime
+               ;; Use macroexpand for body to avoid expanding function calls
+               (let ((bindings-expansion bindings)
+                     (body-expansion
+                       (maptree (fn (x) (macroexpand x)) body)))
+                 (if (eq? body body-expansion)
+                     form
+                     (cons 'let (cons bindings-expansion body-expansion))))))
+            ((eq? head 'quote) form)
+            ((eq? head 'backquote) (bq-completely-process (second form)))
+            ((eq? head '%fn)
+             (let ((params (second form))
+                   (body (head (last form))))
+               (let ((body-expansion
+                       (macroexpand-completely-helper body (- limit 1))))
+                 (if (eq? body body-expansion)
+                     form
+                     `(%fn ,params ,body-expansion)))))
+            (t
+             (let ((expansion (macroexpand form)))
+               (if (eq? form expansion)
+                   form
+                   (macroexpand-completely-helper expansion (- limit 1))))))))))
 
 ;;; Now we redefine DEFUN to use macroexpansion.
 (defmacro defun (name args &rest body)

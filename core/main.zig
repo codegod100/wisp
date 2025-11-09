@@ -88,12 +88,18 @@ pub fn main() anyerror!void {
     } else if (std.mem.eql(u8, cmd, "repl")) {
         var heap = try Wisp.Heap.fromEmbeddedCore(orb);
         
-        // Load structs.wisp if it exists
+        // Load structs.wisp if it exists (try both possible paths)
         if (File.cwd(tmp)) |root| {
-            if (root.readFileAlloc("web/structs.wisp", tmp, std.Io.Limit.limited(maxCodeSize))) |structs_code| {
+            // Try ../web/structs.wisp first (when running from core/)
+            if (root.readFileAlloc("../web/structs.wisp", tmp, std.Io.Limit.limited(maxCodeSize))) |structs_code| {
                 _ = try heap.load(structs_code);
             } else |_| {
-                // If structs.wisp doesn't exist, continue without it
+                // Try web/structs.wisp (when running from project root)
+                if (root.readFileAlloc("web/structs.wisp", tmp, std.Io.Limit.limited(maxCodeSize))) |structs_code| {
+                    _ = try heap.load(structs_code);
+                } else |_| {
+                    // If structs.wisp doesn't exist, continue without it
+                }
             }
         } else |_| {
             // If we can't get cwd, continue without structs
