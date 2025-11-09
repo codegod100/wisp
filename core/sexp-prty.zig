@@ -438,7 +438,10 @@ pub fn pretty(
 }
 
 pub fn prettyPrint(heap: *Wisp.Heap, exp: u32, max: u32) ![]const u8 {
-    _ = max;
+    if (comptime Wisp.browser or @import("builtin").target.os.tag == .wasi) {
+        _ = max;
+        return try Sexp.printAlloc(heap.orb, heap, exp);
+    }
 
     var arena = std.heap.ArenaAllocator.init(heap.orb);
     defer arena.deinit();

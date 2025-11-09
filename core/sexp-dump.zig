@@ -73,7 +73,7 @@ pub fn dump(heap: *Heap, out: anytype, x: u32) anyerror!void {
                 Wisp.t => try out.print("T", .{}),
                 Wisp.top => try out.print("#<TOP>", .{}),
                 Wisp.nah => try out.print("#<NAH>", .{}),
-                else => unreachable,
+                else => try out.print("#<SYS {d}>", .{x}),
             }
         },
 
