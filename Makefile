@@ -48,15 +48,10 @@ wasmtime: wasi-build
 		cd core && mise exec -- wasmtime wisp-wasi.wasm eval $(CODE); \
 	fi
 
-# Default timeout (seconds) for interactive repl; set REPL_TIMEOUT=0 to disable
-REPL_TIMEOUT ?= 10
+
 
 # Interactive REPL (run via Node/WASM)
 repl: wasi-build
-	@if [ "$(REPL_TIMEOUT)" = "0" ]; then \
-		node scripts/run-wasm-repl.mjs; \
-	else \
-		timeout --foreground $(REPL_TIMEOUT) node scripts/run-wasm-repl.mjs; \
-	fi
+	node scripts/run-wasm-repl.mjs
 
 .PHONY: all core-debug core-fast test test-wasm web clean deploy deploy-nodetown wasm-sanity wasi-build wasmtime repl

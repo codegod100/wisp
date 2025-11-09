@@ -49,28 +49,29 @@ async function initContext() {
 }
 
 function formatValue(ctx, value) {
-  value = value >>> 0;
+  const uvalue = value >>> 0;
+  const uzap = ctx.sys.zap >>> 0;
+  const unil = ctx.sys.nil >>> 0;
+  const ut = ctx.sys.t >>> 0;
+  const unah = ctx.sys.nah >>> 0;
+  const utop = ctx.sys.top >>> 0;
 
-  const sys = {
-    zap: ctx.sys.zap >>> 0,
-    nil: ctx.sys.nil >>> 0,
-    t: ctx.sys.t >>> 0,
-    nah: ctx.sys.nah >>> 0,
-    top: ctx.sys.top >>> 0,
-  };
+  if (uvalue === uzap) return 'zap';
+  if (uvalue === unil) return 'nil';
 
-  if (value === sys.zap) return 'zap';
-  if (value === sys.nil) return 'nil';
-  if (value === sys.t) return 't';
-  if (value === sys.nah) return 'nah';
-  if (value === sys.top) return 'top';
+  if (uvalue === ut) return 't';
+  if (uvalue === unah) return 'nah';
+  if (uvalue === utop) return 'top';
+
+  value = uvalue;
 
   if ((value & 0x80000000) === 0) {
-    if (value & 0x40000000) return (value | 0x80000000).toString();
+    if (value & 0x40000000) {
+      return (value | 0x80000000).toString();
+    }
     return value.toString();
   }
 
-  const tag = (value >>> 27) & 0x1f;
   const tags = {
     v08: 0x1a,
     v32: 0x19,
@@ -84,34 +85,75 @@ function formatValue(ctx, value) {
     pin: 0x1f,
   };
 
-  const loadString = (ptr, len) => {
-    const buffer = new Uint8Array(ctx.instance.exports.memory.buffer, ptr, len);
-    return new TextDecoder().decode(buffer);
-  };
+  let tag = (value >>> 27) & 0x1f;
 
-  switch (tag) {
-    case tags.v08: {
-      try {
-        return loadString(
-          ctx.api.wisp_heap_get_v08_ptr(ctx.heap, value),
-          ctx.api.wisp_heap_get_v08_len(ctx.heap, value),
-        );
-      } catch {
-        return '<string>'; 
-      }
+  if (tag === tags.v08) {
+    try {
+      return `"${ctx.loadString(value)}"`;
+    } catch {
+      return `[string: 0x${value.toString(16)}]`;
     }
-    case tags.sym: {
-      try {
-        const namePtr = ctx.api.wisp_heap_sym_str_ptr(ctx.heap, value);
-        const nameLen = ctx.api.wisp_heap_sym_str_len(ctx.heap, value);
-        return loadString(namePtr, nameLen);
-      } catch {
-        return '<symbol>';
-      }
+  } else if (tag === tags.v32) {
+    try {
+      const vec = ctx.loadVector(value);
+      return `[${vec.map((v) => formatValue(ctx, v)).join(', ')}]`;
+    } catch {
+      return `[vector: 0x${value.toString(16)}]`;
     }
-    default:
-      return `#<${tag.toString(16)}:${value.toString(16)}>`;
+  } else if (tag === tags.duo) {
+    try {
+      let result = [];
+      let current = value;
+      let depth = 0;
+
+      while (depth < 100) {
+        const h = ctx.api.wisp_heap_get_duo_head(ctx.heap, current) >>> 0;
+        const t = ctx.api.wisp_heap_get_duo_tail(ctx.heap, current) >>> 0;
+        result.push(formatValue(ctx, h));
+
+        if (t === ctx.sys.nil) {
+          return `(${result.join(' ')})`;
+        }
+
+        const tailTag = (t >>> 27) & 0x1f;
+        if (tailTag === tags.duo) {
+          current = t;
+          depth += 1;
+        } else {
+          return `(${result.join(' ')} . ${formatValue(ctx, t)})`;
+        }
+      }
+      return `(${result.join(' ')} ...)`;
+    } catch {
+      return `[cons: 0x${value.toString(16)}]`;
+    }
+  } else if (tag === tags.sym) {
+    try {
+      if (ctx.api.wisp_heap_get_sym_str) {
+        const strPtr = ctx.api.wisp_heap_get_sym_str(ctx.heap, value) >>> 0;
+        if (strPtr !== ctx.sys.zap && strPtr !== ctx.sys.nil) {
+          const strTag = (strPtr >>> 27) & 0x1f;
+          if (strTag === tags.v08) {
+            return ctx.loadString(strPtr);
+          }
+        }
+      }
+    } catch {
+      // fall through
+    }
+    return `[symbol: 0x${value.toString(16)}]`;
+  } else if (tag === tags.sys) {
+    const sysIdx = value & 0x7ffffff;
+    const sysNames = ['nil', 't', 'nah', 'zap', 'top'];
+    if (sysIdx < sysNames.length) {
+      return sysNames[sysIdx];
+    }
+    return `[sys:${sysIdx}: 0x${value.toString(16)}]`;
+  } else if (tag === tags.fun || tag === tags.mac) {
+    return `[${tag === tags.fun ? 'function' : 'macro'}: 0x${value.toString(16)}]`;
   }
+
+  return `[tag:0x${tag.toString(16)}: 0x${value.toString(16)}]`;
 }
 
 async function evalForms(ctx, code) {
