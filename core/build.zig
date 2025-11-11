@@ -19,8 +19,11 @@ pub fn build(b: *std.Build) void {
     
     // Link readline for Unix-like systems (not Windows or WASM)
     // We check at runtime in the code, but link the library if available
-    exe.linkLibC();
-    exe.linkSystemLibrary("readline");
+    const is_wasm_target = standardTarget.result.cpu.arch == .wasm32;
+    if (!is_wasm_target) {
+        exe.linkLibC();
+        exe.linkSystemLibrary("readline");
+    }
 
     // const wasmExe = b.addExecutable(.{
     //     .name = "wisp",
@@ -108,7 +111,9 @@ pub fn build(b: *std.Build) void {
     // Skip running the bootstrap generator during the default build.
     //    wasmExe.step.dependOn(&bootRun.step);
 
-    b.installArtifact(exe);
+    if (!is_wasm_target) {
+        b.installArtifact(exe);
+    }
     //    b.installArtifact(wasmExe);
     b.installArtifact(wasmLib);
 

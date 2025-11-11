@@ -1,14 +1,15 @@
+ZIG ?= mise exec -- zig
 # Default: fast build for development/testing
 all: core-debug web
 
 # Debug build (slower, for debugging)
-core-debug:; cd core && zig build
+core-debug:; cd core && $(ZIG) build
 
 # Fast build (optimized, for testing)
-core-fast:; cd core && zig build -Doptimize=ReleaseFast
+core-fast:; cd core && $(ZIG) build -Doptimize=ReleaseFast
 
 # Native tests (fast, no WASM)
-test:; cd core && zig build test
+test:; cd core && $(ZIG) build test
 
 # WASM tests (requires web build, 5 second timeout)
 test-wasm: web
@@ -31,12 +32,12 @@ deploy-nodetown: web; scp web/dist/* wisp.town:/restless/www/wisp/
 
 # WASM sanity check
 wasm-sanity:
-	cd core && zig build -Dtarget=wasm32-wasi && \
-	  wasmtime zig-out/bin/wisp.wasm eval "(+ 1 1)"
+	cd core && $(ZIG) build -Dtarget=wasm32-wasi && \ 
+	  mise exec -- wasmtime zig-out/bin/wisp.wasm eval "(+ 1 1)"
 
 # Build WASI executable for wasmtime
 wasi-build:
-	cd core && zig build-exe main.zig -target wasm32-wasi -O ReleaseFast --name wisp-wasi
+	cd core && $(ZIG) build -Dtarget=wasm32-wasi -Doptimize=ReleaseFast
 
 # Run Wisp code with wasmtime (requires wasi-build first)
 # Usage: make wasmtime CODE='"(+ 1 2 3)"'
@@ -51,7 +52,7 @@ wasmtime: wasi-build
 
 
 # Interactive REPL (run via Node/WASM)
-repl: wasi-build
+repl: wasi-build web
 	node scripts/run-wasm-repl.mjs
 
 .PHONY: all core-debug core-fast test test-wasm web clean deploy deploy-nodetown wasm-sanity wasi-build wasmtime repl

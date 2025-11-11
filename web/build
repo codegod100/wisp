@@ -8,7 +8,14 @@ node ./build.mjs
 mkdir -p dist
 
 # Copy WASM (always copy - it's the main artifact)
-cp ../core/zig-out/bin/wisp.wasm dist/
+if [ -f ../core/zig-out/bin/wisp.wasm ]; then
+  cp ../core/zig-out/bin/wisp.wasm dist/
+elif [ -f ../core/wisp-wasi.wasm ]; then
+  cp ../core/wisp-wasi.wasm dist/wisp.wasm
+else
+  echo "Error: could not find wisp.wasm (expected in ../core/zig-out/bin/ or ../core/)" >&2
+  exit 1
+fi
 
 # Copy core JS files (always copy - they're small)
 cp wisp.js wasi.js dist/ 2>/dev/null || true

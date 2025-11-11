@@ -50,6 +50,24 @@ export default class WASI {
     return {
       proc_exit: () => {},
 
+      args_sizes_get: (argcPtr, argvBufSizePtr) => {
+        const view = this.getDataView();
+        view.setUint32(argcPtr, 0, true);
+        view.setUint32(argvBufSizePtr, 0, true);
+        return WASI_ESUCCESS;
+      },
+
+      args_get: () => WASI_ESUCCESS,
+
+      environ_sizes_get: (environCountPtr, environBufSizePtr) => {
+        const view = this.getDataView();
+        view.setUint32(environCountPtr, 0, true);
+        view.setUint32(environBufSizePtr, 0, true);
+        return WASI_ESUCCESS;
+      },
+
+      environ_get: () => WASI_ESUCCESS,
+
       fd_prestat_get: () => WASI_EBADF,
       fd_prestat_dir_name: () => WASI_EBADF,
 

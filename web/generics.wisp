@@ -66,8 +66,14 @@
        (if struct-def
            ;; It's a struct name - check if value is an instance of this struct
            ;; Struct instances are pairs with the struct name as the head
+           ;; Compare symbol names case-insensitively to handle case mismatches
            (if (pair? value)
-               (eq? (head value) type-spec)
+               (let ((value-head (head value)))
+                 (if (symbol? value-head)
+                     (let ((value-name (STRING-TO-UPPERCASE (SYMBOL-NAME value-head)))
+                           (spec-name (STRING-TO-UPPERCASE (SYMBOL-NAME type-spec))))
+                       (STRING-EQUAL? value-name spec-name))
+                   (eq? value-head type-spec)))
              nil)
          ;; Not a struct, check if it's a predicate function
          (let ((pred-fn (symbol-function type-spec)))

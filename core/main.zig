@@ -87,7 +87,7 @@ pub fn main() anyerror!void {
         try @import("./repl.zig").repl();
     } else if (std.mem.eql(u8, cmd, "repl")) {
         var heap = try Wisp.Heap.fromEmbeddedCore(orb);
-        
+
         // Load structs.wisp if it exists (try both possible paths)
         if (File.cwd(tmp)) |root| {
             // Try ../web/structs.wisp first (when running from core/)
@@ -104,7 +104,7 @@ pub fn main() anyerror!void {
         } else |_| {
             // If we can't get cwd, continue without structs
         }
-        
+
         _ = try heap.load("(repl)");
         try stderr.print(";; repl finished\n", .{});
         try stderr.flush();
